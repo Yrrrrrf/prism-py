@@ -1,0 +1,42 @@
+# robots.txt Template
+#
+# This file tells search engine crawlers which pages or files the crawler can or can't request from your site.
+# Use this to manage crawler traffic and prevent crawling of sensitive or unnecessary content.
+#
+# Format:
+# User-agent: [user-agent name]
+# Disallow: [URL string not to be crawled]
+# Allow: [URL string that can be crawled]
+#
+# For more information, see: https://www.robotstxt.org/robotstxt.html
+
+# Default: Allow all crawlers
+User-agent: *
+Allow: /
+
+# Example: Prevent all crawlers from accessing specific directories
+# Disallow: /admin/
+# Disallow: /private/
+# Disallow: /assets/
+# Disallow: /tmp/
+
+# Example: Allow only specific crawlers to access your entire site
+# User-agent: Googlebot
+# Allow: /
+#
+# User-agent: Bingbot
+# Allow: /
+
+# Example: Prevent a specific crawler from accessing your site
+# User-agent: BadBot
+# Disallow: /
+
+# Sitemap
+# It's a good practice to include a link to your sitemap
+Sitemap: https://www.example.com/sitemap.xml
+
+# Crawl-delay
+# Use this to specify a delay (in seconds) between crawler requests
+# Crawl-delay: 10
+
+# Note: Update the Sitemap URL and uncomment/modify rules as needed for your site.

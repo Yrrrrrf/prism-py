@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <!-- 
+    Sitemap Template
+    
+    This file helps search engines understand the structure of your website.
+    It should list all important URLs on your site.
+    
+    Format for each URL entry:
+    <url>
+        <loc>http://www.example.com/page.html</loc>
+        <lastmod>YYYY-MM-DD</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.8</priority>
+    </url>
+    
+    - loc: The URL of the page. This is the only required element for each <url>.
+    - lastmod: The date of last modification of the page. YYYY-MM-DD format.
+    - changefreq: How frequently the page is likely to change. 
+      Values: always, hourly, daily, weekly, monthly, yearly, never.
+    - priority: The priority of this URL relative to other URLs on your site. Range from 0.0 to 1.0.
+    
+    For more information, see: https://www.sitemaps.org/protocol.html
+    -->
+
+    <!-- Homepage example -->
+    <url>
+        <loc>https://www.example.com/</loc>
+        <lastmod>2024-09-12</lastmod>
+        <changefreq>daily</changefreq>
+        <priority>1.0</priority>
+    </url>
+
+    <!-- Regular page example -->
+    <url>
+        <loc>https://www.example.com/about</loc>
+        <lastmod>2024-09-10</lastmod>
+        <changefreq>monthly</changefreq>
+        <priority>0.8</priority>
+    </url>
+
+    <!-- Blog post example -->
+    <url>
+        <loc>https://www.example.com/blog/post-1</loc>
+        <lastmod>2024-09-05</lastmod>
+        <changefreq>yearly</changefreq>
+        <priority>0.6</priority>
+    </url>
+
+    <!-- 
+    Add more <url> entries for each important page on your site.
+    You can generate these dynamically based on your site's content.
+    -->
+
+</urlset>
