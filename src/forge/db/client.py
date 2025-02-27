@@ -151,7 +151,10 @@ class DbClient:
             user, database = self.exec_raw_sql(
                 "SELECT current_user, current_database()"
             ).fetchone()
-            log.info(f"Connected to database as {color_palette['schema'](database)}")
+            log.info(
+                f"Connected to {info_style(database)} database as {success_style(user)}"
+            )
+            # log.info(f"Connected to database as {color_palette['schema'](user)}")
             return (user, database)
         except Exception as e:
             log.error(f"Database connection test failed: {str(e)}")
@@ -218,15 +221,22 @@ class DbClient:
         return relationships
 
     def log_metadata_stats(self):
-        """Log metadata statistics."""
+        """Log database connection metadata and statistics."""
         user, database = self.exec_raw_sql(
             "SELECT current_user, current_database()"
         ).fetchone()
+        db_version = self.get_db_version()
 
-        print(f"Database connection information:")
-        print(f"{dim('Database version:')} {bold(self.get_db_version())}")
-        print(f"\t{f'Type:':<12}{green(self.config.db_type.name)}")
-        print(f"\t{f'Driver:':<12}{green(self.config.driver_type.name)}")
-        print(f"\t{f'DB:':<12}{green(italic(bold(database)))}")
+        connection_info = [
+            ("Version:", db_version, bold),
+            ("Type:", self.config.db_type.name, green),
+            ("Driver:", self.config.driver_type.name, green),
+            ("DB:", database, info_style),
+            ("Host:", f"{self.config.host}:{self.config.port}", info_style),
+        ]
 
-        print(f"\nMetadata statistics for {bold(italic(database))}:")
+        [
+            print(f"\t{dim(italic(f'{label:<12}'))} {formatter(value)}")
+            for label, value, formatter in connection_info
+        ]
+        print()

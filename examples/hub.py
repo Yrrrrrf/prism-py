@@ -47,7 +47,6 @@ model_manager = ModelManager(
 # Display database statistics
 model_manager.log_metadata_stats()
 
-
 # Initialize API generator
 api_forge = ApiForge(
     config=ForgeConfig(
@@ -58,9 +57,8 @@ api_forge = ApiForge(
 )
 
 # Generate metadata routes
-# api_forge.gen_metadata_routes(model_manager)
+api_forge.gen_metadata_routes(model_manager)
 # api_forge.gen_health_routes(model_manager)
-
-# api_forge.gen_table_routes(model_manager)
+api_forge.gen_table_routes(model_manager)
 api_forge.gen_view_routes(model_manager)
-# api_forge.gen_fn_routes(model_manager)
+api_forge.gen_fn_routes(model_manager)

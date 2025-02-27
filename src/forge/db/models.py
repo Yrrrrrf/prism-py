@@ -9,7 +9,7 @@ from sqlalchemy import Enum as SQLAlchemyEnum
 from pydantic import BaseModel, create_model, Field, ConfigDict
 from enum import Enum as PyEnum
 
-from forge.core.logging import log, color_palette
+from forge.core.logging import log, color_palette, bold
 from forge.common.types import (
     EnumInfo,
     FunctionParameter,
@@ -20,8 +20,6 @@ from forge.common.types import (
     ArrayType,
     JSONBType,
     get_eq_type,
-    parse_array_type,
-    create_dynamic_model,
 )
 from forge.db.client import DbClient
 from sqlalchemy.orm import DeclarativeBase, declared_attr
@@ -29,7 +27,7 @@ from sqlalchemy.orm import DeclarativeBase, declared_attr
 
 class BaseSQLModel(DeclarativeBase):
     """Base class for all generated SQLAlchemy models."""
-    
+
     @declared_attr
     def __tablename__(cls) -> str:
         """Generate table name from class name."""
@@ -70,7 +68,6 @@ class ModelManager:
 
     def _load_models(self):
         """Load database tables into models."""
-        log.info("Loading database tables...")
 
         metadata = self.db_client.metadata
         engine = self.db_client.engine
@@ -137,13 +134,6 @@ class ModelManager:
                                 Field(default=... if not column.nullable else None),
                             )
 
-                    # Create Pydantic model
-                    model_config = ConfigDict(
-                        from_attributes=True,
-                        arbitrary_types_allowed=True,
-                        populate_by_name=True,
-                    )
-
                     pydantic_model = create_model(
                         f"Pydantic_{table.name}", __base__=ForgeBaseModel, **fields
                     )
@@ -153,27 +143,27 @@ class ModelManager:
                         f"SQLAlchemy_{table.name}",
                         (BaseSQLModel,),
                         {
-                            '__table__': table,
-                            '__tablename__': table.name,
-                            '__mapper_args__': {
-                                'primary_key': [col for col in table.columns if col.primary_key]
-                            }
-                        }
+                            "__table__": table,
+                            "__tablename__": table.name,
+                            "__mapper_args__": {
+                                "primary_key": [
+                                    col for col in table.columns if col.primary_key
+                                ]
+                            },
+                        },
                     )
 
                     # Store in cache
                     key = f"{schema}.{table.name}"
                     self.table_cache[key] = (table, (pydantic_model, sqlalchemy_model))
-                    log.success(
+                    log.trace(
                         f"Loaded table: {color_palette['schema'](schema)}.{color_palette['table'](table.name)}"
                     )
 
-        log.info(f"Loaded {color_palette['table'](str(len(self.table_cache)))} tables")
+        log.debug(f"Loaded {color_palette['table'](str(len(self.table_cache)))} tables")
 
     def _load_enums(self):
         """Load database enums."""
-        log.info("Loading database enums...")
-
         for schema in self.include_schemas:
             for table in self.db_client.metadata.tables.values():
                 if (
@@ -193,16 +183,14 @@ class ModelManager:
                                     ),
                                     schema=schema,
                                 )
-                                log.success(
+                                log.trace(
                                     f"Loaded enum: {color_palette['schema'](schema)}.{color_palette['enum'](enum_name)}"
                                 )
 
-        log.info(f"Loaded {color_palette['enum'](str(len(self.enum_cache)))} enums")
+        log.debug(f"Loaded {color_palette['enum'](str(len(self.enum_cache)))} enums")
 
     def _load_views(self):
         """Load database views."""
-        log.info("Loading database views...")
-
         metadata = self.db_client.metadata
         engine = self.db_client.engine
 
@@ -274,23 +262,37 @@ class ModelManager:
                     # Store in cache
                     key = f"{schema}.{table.name}"
                     self.view_cache[key] = (table, (QueryModel, ResponseModel))
-                    log.success(
+                    log.trace(
                         f"Loaded view: {color_palette['schema'](schema)}.{color_palette['view'](table.name)}"
                     )
 
-        log.info(f"Loaded {color_palette['view'](str(len(self.view_cache)))} views")
+        log.debug(f"Loaded {color_palette['view'](str(len(self.view_cache)))} views")
+
+
+    def _get_sample_data(
+        self, schema: str, table_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a sample row from the table for type inference."""
+        try:
+            with next(self.db_client.get_db()) as db:
+                query = f"SELECT * FROM {schema}.{table_name} LIMIT 1"
+                result = db.execute(text(query)).first()
+                if result:
+                    return {key: value for key, value in result._mapping.items()}
+        except Exception as e:
+            log.debug(f"Could not get sample data for {schema}.{table_name}: {str(e)}")
+        return None
+
 
     def _load_functions(self):
         """Load database functions, procedures, and triggers."""
-        log.info("Loading database functions...")
-
         fn_cache, proc_cache, trig_cache = self._discover_functions()
 
         self.fn_cache = fn_cache
         self.proc_cache = proc_cache
         self.trig_cache = trig_cache
 
-        log.info(
+        log.debug(
             f"Loaded {color_palette['function'](str(len(self.fn_cache)))} functions, "
             f"{color_palette['procedure'](str(len(self.proc_cache)))} procedures, "
             f"{color_palette['trigger'](str(len(self.trig_cache)))} triggers"
@@ -444,40 +446,23 @@ class ModelManager:
                     description=row.description,
                 )
 
-                # Categorize based on object_type
-                key = f"{row.schema}.{row.name}"
+                component = f"{row.schema}.{row.name}"
 
-                if row.object_type == "trigger":
-                    trigger_cache[key] = metadata
-                    log.success(
-                        f"Loaded trigger: {color_palette['schema'](row.schema)}.{color_palette['trigger'](row.name)}"
-                    )
-                elif row.object_type == "procedure":
-                    procedure_cache[key] = metadata
-                    log.success(
-                        f"Loaded procedure: {color_palette['schema'](row.schema)}.{color_palette['procedure'](row.name)}"
-                    )
-                elif row.object_type == "function":
-                    function_cache[key] = metadata
-                    log.success(
-                        f"Loaded function: {color_palette['schema'](row.schema)}.{color_palette['function'](row.name)}"
-                    )
+                match row.object_type:
+                    case "function":
+                        function_cache[component] = metadata
+                    case "procedure":
+                        procedure_cache[component] = metadata
+                    case "trigger":
+                        trigger_cache[component] = metadata
+                    case _:
+                        raise ValueError(f"Unknown object type: {row.object_type}")
+
+                log.trace(
+                    f"Loaded {row.object_type}: {color_palette['schema'](row.schema)}.{color_palette[row.object_type](row.name)}"
+                )
 
         return function_cache, procedure_cache, trigger_cache
-
-    def _get_sample_data(
-        self, schema: str, table_name: str
-    ) -> Optional[Dict[str, Any]]:
-        """Get a sample row from the table for type inference."""
-        try:
-            with next(self.db_client.get_db()) as db:
-                query = f"SELECT * FROM {schema}.{table_name} LIMIT 1"
-                result = db.execute(text(query)).first()
-                if result:
-                    return {key: value for key, value in result._mapping.items()}
-        except Exception as e:
-            log.debug(f"Could not get sample data for {schema}.{table_name}: {str(e)}")
-        return None
 
     def log_metadata_stats(self):
         """Print metadata statistics in a table format."""
@@ -562,7 +547,7 @@ class ModelManager:
                 color_palette["function"](str(counts["functions"])),
                 color_palette["procedure"](str(counts["procedures"])),
                 color_palette["trigger"](str(counts["triggers"])),
-                # color_palette["total"](str(schema_total)),
+                schema_total,
             ]
             rows.append(row)
 
@@ -573,19 +558,19 @@ class ModelManager:
         # Calculate grand total
         grand_total = sum(totals.values())
 
-        # Add totals row
+        # Add totals row with all columns matching header length
         totals_row = [
-            # color_palette["total"]("TOTAL"),
+            bold("TOTAL"),  # First column should be the "Schema" equivalent for totals
             color_palette["table"](str(totals["tables"])),
             color_palette["view"](str(totals["views"])),
             color_palette["enum"](str(totals["enums"])),
             color_palette["function"](str(totals["functions"])),
             color_palette["procedure"](str(totals["procedures"])),
             color_palette["trigger"](str(totals["triggers"])),
-            # color_palette["total"](str(grand_total)),
+            bold(str(grand_total)),
         ]
         rows.append(totals_row)
 
         # Print table
         log.section("ModelManager Statistics")
-        # log.table(headers, rows)
+        log.table(headers, rows)

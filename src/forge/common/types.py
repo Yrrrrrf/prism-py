@@ -1,4 +1,8 @@
-# src/forge/common/types.py
+# This is a proposed reorganization to avoid duplicated type definitions
+
+# ==== src/forge/common/types.py ====
+# Keep all core data models and type logic here
+
 """Type definitions and mapping utilities used across the forge-py framework."""
 
 from __future__ import annotations
@@ -27,7 +31,6 @@ from typing import (
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
-from sqlalchemy import Enum as SQLAlchemyEnum
 
 
 # ===== Type Aliases =====
@@ -53,12 +56,6 @@ class ForgeBaseModel(BaseModel):
         extra="ignore",  # Ignore extra fields
         str_strip_whitespace=True,  # Strip whitespace from strings
     )
-
-
-class DynamicBase(ForgeBaseModel):
-    """Base class for dynamically created models from JSON data."""
-
-    pass
 
 
 # ===== Enum, Function and Metadata Types =====
@@ -130,6 +127,147 @@ class ColumnReference:
     schema: str
     table: str
     column: str
+
+
+# ===== API Response Models =====
+# These are the Pydantic models used specifically for API responses
+
+class ApiColumnReference(ForgeBaseModel):
+    """Reference to another database column (for foreign keys)."""
+
+    schema_name: str = Field(alias="schema")
+    table: str
+    column: str
+
+
+class ApiColumnMetadata(ForgeBaseModel):
+    """Column metadata for table or view."""
+
+    name: str
+    type: str
+    nullable: bool
+    is_primary_key: Optional[bool] = Field(default=None, alias="is_pk")
+    is_enum: Optional[bool] = None
+    references: Optional[ApiColumnReference] = None
+
+
+class ApiEntityMetadata(ForgeBaseModel):
+    """Base class for database entity metadata."""
+
+    name: str
+    schema_name: str = Field(alias="schema")
+
+
+class ApiTableMetadata(ApiEntityMetadata):
+    """Table structure metadata."""
+
+    columns: List[ApiColumnMetadata] = []
+
+
+class ApiEnumValue(ForgeBaseModel):
+    """Enum value information."""
+
+    name: str
+    value: str
+
+
+class ApiEnumMetadata(ApiEntityMetadata):
+    """Enum type metadata."""
+
+    values: List[str] = []
+
+
+class ApiFunctionParameter(ForgeBaseModel):
+    """Function parameter metadata."""
+
+    name: str
+    type: str
+    mode: str = "IN"  # IN, OUT, INOUT, VARIADIC
+    has_default: bool = False
+    default_value: Optional[str] = None
+
+
+class ApiReturnColumn(ForgeBaseModel):
+    """Return column for table-returning functions."""
+
+    name: str
+    type: str
+
+
+class ApiFunctionMetadata(ApiEntityMetadata):
+    """Database function metadata."""
+
+    type: str  # scalar, table, set, etc.
+    object_type: str  # function, procedure, trigger
+    description: Optional[str] = None
+    parameters: List[ApiFunctionParameter] = []
+    return_type: Optional[str] = None
+    return_columns: Optional[List[ApiReturnColumn]] = None
+    is_strict: bool = False
+
+
+class ApiTriggerEvent(ForgeBaseModel):
+    """Trigger event information."""
+
+    timing: str  # BEFORE, AFTER, INSTEAD OF
+    events: List[str]  # INSERT, UPDATE, DELETE, TRUNCATE
+    table_schema: str
+    table_name: str
+
+
+class ApiTriggerMetadata(ApiFunctionMetadata):
+    """Trigger metadata extending function metadata."""
+
+    trigger_data: ApiTriggerEvent
+
+
+class ApiSchemaMetadata(ForgeBaseModel):
+    """Complete schema metadata including all database objects."""
+
+    name: str
+    tables: Dict[str, ApiTableMetadata] = {}
+    views: Dict[str, ApiTableMetadata] = {}
+    enums: Dict[str, ApiEnumMetadata] = {}
+    functions: Dict[str, ApiFunctionMetadata] = {}
+    procedures: Dict[str, ApiFunctionMetadata] = {}
+    triggers: Dict[str, ApiTriggerMetadata] = {}
+
+
+# ===== Conversion Functions =====
+# These functions convert between internal data structures and API models
+
+def to_api_function_parameter(param: FunctionParameter) -> ApiFunctionParameter:
+    """Convert internal function parameter to API response model."""
+    return ApiFunctionParameter(
+        name=param.name,
+        type=param.type,
+        mode=param.mode,
+        has_default=param.has_default,
+        default_value=str(param.default_value) if param.default_value is not None else None,
+    )
+
+
+def to_api_function_metadata(fn: FunctionMetadata) -> ApiFunctionMetadata:
+    """Convert internal function metadata to API response model."""
+    return ApiFunctionMetadata(
+        name=fn.name,
+        schema=fn.schema,
+        type=str(fn.type),
+        object_type=str(fn.object_type),
+        description=fn.description,
+        parameters=[to_api_function_parameter(p) for p in fn.parameters],
+        return_type=fn.return_type,
+        is_strict=fn.is_strict,
+    )
+
+
+def to_api_column_reference(ref: ColumnReference) -> ApiColumnReference:
+    """Convert internal column reference to API response model."""
+    return ApiColumnReference(
+        schema=ref.schema,
+        table=ref.table,
+        column=ref.column,
+    )
 
 
 # ===== SQL Type Mapping =====
@@ -398,7 +536,7 @@ def create_dynamic_model(json_data: JsonData, model_name: str) -> ModelType:
             fields[key] = (Optional[inferred_type], Field(default=None))
 
     # Create model with generated fields
-    return create_model(model_name, __base__=DynamicBase, **fields)
+    return create_model(model_name, __base__=ForgeBaseModel, **fields)
 
 
 def parse_array_type(sql_type: str) -> Type:

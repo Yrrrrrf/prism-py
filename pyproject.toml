@@ -4,9 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "forge-py"
-version = "0.0.1"
+version = "0.0.1-rc-0"
 description = "Automatic API generator that creates a REST API mirror of a database"
 readme = "README.md"
+keywords = ["api", "rest", "database", "fastapi", "sqlalchemy"]
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
@@ -20,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "fastapi>=0.115.8",
+    "fastapi>=0.115.10",
     "sqlalchemy>=2.0.38",
     "psycopg2>=2.9.10",
     "pydantic>=2.10.6",
@@ -35,9 +36,14 @@ Documentation = "https://forge-py.readthedocs.io/"
 dev = [
     "pytest>=8.3.4",
     "black>=25.1.0",
-    "isort>=6.0.0",
+    "isort>=6.0.1",
     "mypy>=1.15.0",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/forge"]
+
+[dependency-groups]
+dev = [
+    "uvicorn>=0.34.0",
+]

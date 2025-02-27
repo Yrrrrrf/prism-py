@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from enum import Enum
 from functools import lru_cache
-from typing import Any, Callable, Dict, Union, Optional
+from typing import Callable, Union, Optional
 
 
 class ColorCode(str, Enum):
@@ -143,40 +143,62 @@ def pad_str(text: str, length: int, align: str = "left") -> str:
             return text + " " * padding
 
 
-class LogLevel(str, Enum):
-    """Log levels with associated colors."""
+class LogLevel(Enum):
+    """Log levels with associated colors and severity values."""
 
-    DEBUG = "DEBUG"
-    INFO = "INFO"
-    SUCCESS = "SUCCESS"
-    WARNING = "WARNING"
-    ERROR = "ERROR"
-    CRITICAL = "CRITICAL"
+    TRACE = 0
+    DEBUG = 1
+    INFO = 2
+    WARNING = 4
+    ERROR = 5
+    NONE = 100  # Special level to disable all logging
+
+    def __str__(self) -> str:
+        return self.name
 
     def get_color_fn(self) -> Callable[[str], str]:
         """Get the color function for this log level."""
         match self:
+            case LogLevel.TRACE:
+                return lambda x: colorize(x, ColorCode.DIM)
             case LogLevel.DEBUG:
                 return lambda x: colorize(x, ColorCode.DIM, ColorCode.MAGENTA)
             case LogLevel.INFO:
                 return lambda x: colorize(x, ColorCode.BLUE)
-            case LogLevel.SUCCESS:
-                return lambda x: colorize(x, ColorCode.GREEN)
             case LogLevel.WARNING:
                 return lambda x: colorize(x, ColorCode.YELLOW)
             case LogLevel.ERROR:
                 return lambda x: colorize(x, ColorCode.RED)
-            case LogLevel.CRITICAL:
-                return lambda x: colorize(x, ColorCode.BOLD, ColorCode.RED)
+            case _:
+                return lambda x: x  # No color for NONE level
 
 
 class Logger:
-    """Enhanced logger with ANSI color support and timing utilities."""
+    """Enhanced logger with ANSI color support, timing utilities, and level filtering."""
 
-    def __init__(self, module_name: str = "forge"):
+    def __init__(
+        self,
+        module_name: str = "forge",
+        level: LogLevel = LogLevel.INFO,
+        enable_console: bool = True,
+    ):
         self.module_name = module_name
         self.indent_level = 0
         self.show_timestamp = True
+        self.level = level
+        self.enable_console = enable_console
+
+    def set_level(self, level: Union[LogLevel, str]) -> None:
+        """Set the minimum log level to display."""
+        if isinstance(level, str):
+            try:
+                level = LogLevel[level.upper()]
+            except KeyError:
+                valid_levels = ", ".join(l.name for l in LogLevel)
+                raise ValueError(
+                    f"Invalid log level: {level}. Valid levels are: {valid_levels}"
+                )
+        self.level = level
 
     def _format_msg(self, level: LogLevel, message: str) -> str:
         """Format log message with consistent styling."""
@@ -192,32 +214,26 @@ class Logger:
         return f"{colorize(timestamp, ColorCode.ITALIC)}{level_str} {module_str} {indent}{message}"
 
     def log(self, level: LogLevel, message: str) -> None:
-        """Log a message with the specified level."""
+        """Log a message with the specified level if it meets the threshold."""
+        if not self.enable_console or level.value < self.level.value:
+            return
+
         print(self._format_msg(level, message))
 
+    def trace(self, message: str) -> None:
+        self.log(LogLevel.TRACE, message)
+
     def debug(self, message: str) -> None:
-        """Log a debug message."""
         self.log(LogLevel.DEBUG, message)
 
     def info(self, message: str) -> None:
-        """Log an info message."""
         self.log(LogLevel.INFO, message)
 
-    def success(self, message: str) -> None:
-        """Log a success message."""
-        self.log(LogLevel.SUCCESS, message)
-
     def warning(self, message: str) -> None:
-        """Log a warning message."""
         self.log(LogLevel.WARNING, message)
 
     def error(self, message: str) -> None:
-        """Log an error message."""
         self.log(LogLevel.ERROR, message)
-
-    def critical(self, message: str) -> None:
-        """Log a critical error message."""
-        self.log(LogLevel.CRITICAL, message)
 
     @contextmanager
     def indented(self, levels: int = 1):
@@ -237,15 +253,25 @@ class Logger:
             yield
         finally:
             elapsed = time.time() - start_time
-            self.success(f"{operation} completed in {elapsed:.2f}s")
+            self.debug(f"{operation} completed in {elapsed:.2f}s")
+
+    def toggle_console(self, enabled: bool = True) -> None:
+        """Enable or disable console output."""
+        self.enable_console = enabled
 
     def section(self, title: str) -> None:
         """Print a section header."""
+        if not self.enable_console or self.level.value > LogLevel.INFO.value:
+            return
+
         header = f"{'=' * 50}\n{title}\n{'=' * 50}"
         print(f"\n{bright_white(header)}")
 
     def table(self, headers: list, rows: list, widths: Optional[list] = None) -> None:
         """Print a formatted table with headers and rows."""
+        if not self.enable_console or self.level.value > LogLevel.INFO.value:
+            return
+
         if not widths:
             # Calculate widths based on content
             widths = [
@@ -277,5 +303,11 @@ class Logger:
         print(border_bottom)
 
 
-# Create a shared logger instance
+# Create a shared logger instance (default level is INFO)
 log: Logger = Logger()
+# log.set_level(LogLevel.INFO)  # Show debug messages and above
+
+# Example of how to change log level
+log.set_level(LogLevel.DEBUG)  # Show debug messages and above
+# log.set_level("WARNING")       # Show only warnings and above
+# log.set_level(LogLevel.NONE)   # Disable all logging

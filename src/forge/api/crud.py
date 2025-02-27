@@ -1,25 +1,16 @@
 # src/forge/api/crud.py
-"""CRUD operations for database tables with FastAPI routes."""
-
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import Table
-from pydantic import BaseModel
+from pydantic import BaseModel, create_model, Field
 
-from forge.common.types import (
-    ForgeBaseModel,
-    JSONBType,
-    ArrayType,
-    get_eq_type,
-    create_query_params_model,
-    process_jsonb_value,
-    process_array_value,
-)
+from forge.api.router import RouteGenerator
+from forge.common.types import ForgeBaseModel, get_eq_type, JSONBType, ArrayType
 
 
-class CrudOps:
-    """Class to handle CRUD operations with FastAPI routes."""
+class CrudGenerator(RouteGenerator):
+    """Generator for CRUD routes."""
 
     def __init__(
         self,
@@ -28,38 +19,67 @@ class CrudOps:
         sqlalchemy_model: Type[Any],
         router: APIRouter,
         db_dependency: Callable,
+        schema: str,
         prefix: str = "",
+        enhanced_filtering: bool = True,  # Enable/disable advanced filtering
     ):
-        """Initialize CRUD handler with common parameters."""
-        self.table = table
-        self.pydantic_model = pydantic_model
+        super().__init__(
+            resource_name=table.name,
+            router=router,
+            db_dependency=db_dependency,
+            schema=schema,
+            response_model=pydantic_model,
+            query_model=None,  # Will be created in initialize
+            table=table,
+            prefix=prefix,
+        )
         self.sqlalchemy_model = sqlalchemy_model
-        self.router = router
-        self.db_dependency = db_dependency
-        self.prefix = prefix
+        self.enhanced_filtering = enhanced_filtering
+        self.initialize()
 
-        # Create query params model using the enhanced utility function
-        self.query_params = create_query_params_model(pydantic_model, table.columns)
+    def initialize(self):
+        """Initialize the generator with query model based on filtering options."""
+        from forge.common.types import create_query_params_model, QueryParams
 
-    def _get_route_path(self, operation: str = "") -> str:
-        """Generate route path with optional prefix."""
-        base_path = f"/{self.table.name.lower()}"
-        if operation:
-            base_path = f"{base_path}/{operation}"
-        return f"{self.prefix}{base_path}"
+        if self.enhanced_filtering:
+            # Create query model with enhanced filtering options
+            self.query_model = create_query_params_model(
+                self.response_model, self.table.columns
+            )
+        else:
+            # Create simpler query model with only table fields as filters
+            fields = {}
+            for column in self.table.columns:
+                field_type = get_eq_type(str(column.type))
+                # Make all fields optional for query params
+                fields[column.name] = (Optional[field_type], Field(default=None))
 
-    def create(self) -> None:
-        """Add CREATE route."""
+            # Create the model without additional filtering params
+            self.query_model = create_model(
+                f"{self.response_model.__name__}QueryParams",
+                **fields,
+                __base__=ForgeBaseModel,
+            )
+
+    def generate_routes(self):
+        """Generate all CRUD routes."""
+        self.create()
+        self.read()
+        self.update()
+        self.delete()
+
+    def create(self):
+        """Generate CREATE route."""
 
         @self.router.post(
-            self._get_route_path(),
-            response_model=self.pydantic_model,
-            summary=f"Create {self.table.name}",
-            description=f"Create a new {self.table.name} record",
+            self.get_route_path(),
+            response_model=self.response_model,
+            summary=f"Create {self.resource_name}",
+            description=f"Create a new {self.resource_name} record",
         )
         def create_resource(
-            resource: self.pydantic_model, db: Session = Depends(self.db_dependency)
-        ) -> self.pydantic_model:
+            resource: self.response_model, db: Session = Depends(self.db_dependency)
+        ) -> self.response_model:
             # Extract data excluding unset values
             data = resource.model_dump(exclude_unset=True)
 
@@ -70,81 +90,100 @@ class CrudOps:
                 db.commit()
                 db.refresh(db_resource)
 
-                # Prepare result data with proper field conversions
-                result_dict = self._process_record_fields(db_resource)
-                return self.pydantic_model(**result_dict)
+                # Process and return result
+                result_dict = self.process_record_fields(db_resource)
+                return self.response_model(**result_dict)
             except Exception as e:
                 db.rollback()
                 raise HTTPException(
                     status_code=400, detail=f"Creation failed: {str(e)}"
                 )
 
-    def read(self) -> None:
-        """Add READ route with enhanced JSONB handling."""
+    def read(self):
+        """Generate READ route with filtering and pagination."""
 
         @self.router.get(
-            self._get_route_path(),
-            response_model=List[self.pydantic_model],
-            summary=f"Get {self.table.name} resources",
-            description=f"Retrieve {self.table.name} records with optional filtering",
+            self.get_route_path(),
+            response_model=List[self.response_model],
+            summary=f"Get {self.resource_name} resources",
+            description=f"Retrieve {self.resource_name} records with optional filtering",
         )
         def read_resources(
             db: Session = Depends(self.db_dependency),
-            filters: self.query_params = Depends(),
-        ) -> List[self.pydantic_model]:
-            # Build query with filters
-            query = self._build_filtered_query(db, filters)
+            filters: self.query_model = Depends(),
+        ) -> List[self.response_model]:
+            # Start with base query
+            query = db.query(self.sqlalchemy_model)
 
-            # Apply pagination if provided
-            if filters.limit:
-                query = query.limit(filters.limit)
-            if filters.offset:
-                query = query.offset(filters.offset)
+            # Apply filters
+            query = self._apply_filters(query, filters)
 
-            # Apply ordering if provided
-            if filters.order_by:
-                order_column = getattr(self.sqlalchemy_model, filters.order_by, None)
-                if order_column:
-                    query = query.order_by(
-                        order_column.desc()
-                        if filters.order_dir == "desc"
-                        else order_column
+            # Apply pagination and sorting if enhanced filtering is enabled
+            if self.enhanced_filtering:
+                if hasattr(filters, "limit") and filters.limit is not None:
+                    query = query.limit(filters.limit)
+
+                if hasattr(filters, "offset") and filters.offset is not None:
+                    query = query.offset(filters.offset)
+
+                # Apply ordering
+                if hasattr(filters, "order_by") and filters.order_by is not None:
+                    order_column = getattr(
+                        self.sqlalchemy_model, filters.order_by, None
                     )
+                    if order_column:
+                        if (
+                            hasattr(filters, "order_dir")
+                            and filters.order_dir == "desc"
+                        ):
+                            query = query.order_by(order_column.desc())
+                        else:
+                            query = query.order_by(order_column)
 
             # Execute query
             resources = query.all()
 
             # Process and validate results
-            return [
-                self.pydantic_model.model_validate(
-                    self._process_record_fields(resource)
-                )
-                for resource in resources
-            ]
+            processed_results = []
+            for resource in resources:
+                processed_record = self.process_record_fields(resource)
+                try:
+                    validated_record = self.response_model.model_validate(
+                        processed_record
+                    )
+                    processed_results.append(validated_record)
+                except Exception as e:
+                    # Log validation error but continue processing other records
+                    pass
 
-    def update(self) -> None:
-        """Add UPDATE route."""
+            return processed_results
+
+    def update(self):
+        """Generate UPDATE route."""
 
         @self.router.put(
-            self._get_route_path(),
+            self.get_route_path(),
             response_model=Dict[str, Any],
-            summary=f"Update {self.table.name}",
-            description=f"Update {self.table.name} records that match the filter criteria",
+            summary=f"Update {self.resource_name}",
+            description=f"Update {self.resource_name} records that match the filter criteria",
         )
         def update_resource(
-            resource: self.pydantic_model,
+            resource: self.response_model,
             db: Session = Depends(self.db_dependency),
-            filters: self.query_params = Depends(),
+            filters: self.query_model = Depends(),
         ) -> Dict[str, Any]:
+            # Get update data
             update_data = resource.model_dump(exclude_unset=True)
-            filters_dict = self._extract_filter_params(filters)
 
-            if not filters_dict:
+            # Check for filter params
+            filter_dict = self.extract_filter_params(filters)
+            if not filter_dict:
                 raise HTTPException(status_code=400, detail="No filters provided")
 
             try:
                 # Build query with filters
-                query = self._build_filtered_query(db, filters)
+                query = db.query(self.sqlalchemy_model)
+                query = self._apply_filters(query, filters)
 
                 # Get records before update
                 resources_before = query.all()
@@ -155,8 +194,8 @@ class CrudOps:
 
                 # Store old data for response
                 old_data = [
-                    self.pydantic_model.model_validate(
-                        self._process_record_fields(resource)
+                    self.response_model.model_validate(
+                        self.process_record_fields(resource)
                     )
                     for resource in resources_before
                 ]
@@ -166,10 +205,14 @@ class CrudOps:
                 db.commit()
 
                 # Get updated records
+                query = db.query(self.sqlalchemy_model)
+                query = self._apply_filters(query, filters)
                 resources_after = query.all()
+
+                # Process updated data
                 updated_data = [
-                    self.pydantic_model.model_validate(
-                        self._process_record_fields(resource)
+                    self.response_model.model_validate(
+                        self.process_record_fields(resource)
                     )
                     for resource in resources_after
                 ]
@@ -183,27 +226,28 @@ class CrudOps:
                 db.rollback()
                 raise HTTPException(status_code=400, detail=f"Update failed: {str(e)}")
 
-    def delete(self) -> None:
-        """Add DELETE route."""
+    def delete(self):
+        """Generate DELETE route."""
 
         @self.router.delete(
-            self._get_route_path(),
+            self.get_route_path(),
             response_model=Dict[str, Any],
-            summary=f"Delete {self.table.name}",
-            description=f"Delete {self.table.name} records that match the filter criteria",
+            summary=f"Delete {self.resource_name}",
+            description=f"Delete {self.resource_name} records that match the filter criteria",
         )
         def delete_resource(
             db: Session = Depends(self.db_dependency),
-            filters: self.query_params = Depends(),
+            filters: self.query_model = Depends(),
         ) -> Dict[str, Any]:
-            filters_dict = self._extract_filter_params(filters)
-
-            if not filters_dict:
+            # Check for filter params
+            filter_dict = self.extract_filter_params(filters)
+            if not filter_dict:
                 raise HTTPException(status_code=400, detail="No filters provided")
 
             try:
                 # Build query with filters
-                query = self._build_filtered_query(db, filters)
+                query = db.query(self.sqlalchemy_model)
+                query = self._apply_filters(query, filters)
 
                 # Get resources before deletion
                 to_delete = query.all()
@@ -212,8 +256,8 @@ class CrudOps:
 
                 # Store deleted data for response
                 deleted_resources = [
-                    self.pydantic_model.model_validate(
-                        self._process_record_fields(resource)
+                    self.response_model.model_validate(
+                        self.process_record_fields(resource)
                     ).model_dump()
                     for resource in to_delete
                 ]
@@ -232,65 +276,16 @@ class CrudOps:
                     status_code=400, detail=f"Deletion failed: {str(e)}"
                 )
 
-    def generate_all(self) -> None:
-        """Generate all CRUD routes."""
-        self.create()
-        self.read()
-        self.update()
-        self.delete()
+    def _apply_filters(self, query, filters):
+        """Apply filters to the query."""
+        # Extract filter parameters
+        filter_dict = self.extract_filter_params(filters)
 
-    # ===== Helper Methods =====
-
-    def _extract_filter_params(self, filters: Any) -> Dict[str, Any]:
-        """Extract filter parameters excluding pagination/ordering fields."""
-        filter_dict = {}
-        if not hasattr(filters, "model_dump"):
-            return filter_dict
-
-        # Get all filter attributes
-        all_attrs = filters.model_dump(exclude_unset=True)
-
-        # Exclude standard query params
-        standard_params = {"limit", "offset", "order_by", "order_dir"}
-
-        # Keep only valid filter fields
-        for key, value in all_attrs.items():
-            if key not in standard_params and value is not None:
-                filter_dict[key] = value
-
-        return filter_dict
-
-    def _build_filtered_query(self, db, filters):
-        """Build a query with filters applied."""
-        # Use a proper SQLAlchemy query starting point
-        query = db.query(self.sqlalchemy_model)
-        
-        # Get filter parameters
-        filter_dict = self._extract_filter_params(filters)
-        
-        # Apply each filter with correct attribute reference
+        # Apply each filter
         for field_name, value in filter_dict.items():
             if value is not None:
                 column = getattr(self.sqlalchemy_model, field_name, None)
                 if column is not None:
                     query = query.filter(column == value)
-        
+
         return query
-
-    def _process_record_fields(self, record: Any) -> Dict[str, Any]:
-        """Process record fields with proper type handling."""
-        result = {}
-
-        for column in self.table.columns:
-            value = getattr(record, column.name)
-            field_type = get_eq_type(str(column.type))
-
-            # Handle special types
-            if isinstance(field_type, JSONBType):
-                result[column.name] = process_jsonb_value(value)
-            elif isinstance(field_type, ArrayType):
-                result[column.name] = process_array_value(value, field_type.item_type)
-            else:
-                result[column.name] = value
-
-        return result
