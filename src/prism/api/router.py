@@ -1,12 +1,11 @@
-# src/forge/api/base.py
+# src/prism/api/base.py
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Optional, Type, Generic, TypeVar
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import Table
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from typing import Any, Callable, Dict, Generic, List, Type, TypeVar
 
-from forge.common.types import JSONBType, ArrayType, get_eq_type
+from fastapi import APIRouter
+from sqlalchemy import Table
+
+from prism.common.types import ArrayType, JSONBType, get_eq_type
 
 # Type variables for generic typing
 T = TypeVar("T")  # Response model

@@ -1,12 +1,11 @@
-# src/forge/api/health.py
+# src/prism/api/health.py
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Any
-from fastapi import APIRouter, Depends, Response
+
+from fastapi import APIRouter, Response
 from pydantic import BaseModel
 
-from forge.api.router import RouteGenerator
-from forge.core.logging import log, color_palette
-from forge.db.models import ModelManager
+from prism.api.router import RouteGenerator
+from prism.db.models import ModelManager
 
 
 class HealthResponse(BaseModel):

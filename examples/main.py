@@ -1,14 +1,14 @@
 # examples/main.py
 """
-forge-py: Generate FastAPI routes automatically from database schemas.
+prism-py: Generate FastAPI routes automatically from database schemas.
 """
 
 # Re-export main components for cleaner imports
 from fastapi import FastAPI
-from forge import forge_init
 
+from prism import prism_init
 
-# ? Main API Forge -----------------------------------------------------------------------------------
+# ? Main API Prism -----------------------------------------------------------------------------------
 
 print("Importing main.py...")
 
@@ -18,7 +18,7 @@ app: FastAPI = (
 
 
 def run():
-    forge_init()
+    prism_init()
     # * ... Some other code here...
 
 

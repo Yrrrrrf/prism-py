@@ -1,8 +1,11 @@
 import os
 
 from fastapi import FastAPI
-from forge import *
 
+from prism import *
+from prism.core.logging import LogLevel, log
+
+log.set_level(LogLevel.TRACE)  # Show debug messages and above
 
 app = FastAPI()
 
@@ -48,17 +51,19 @@ model_manager = ModelManager(
 model_manager.log_metadata_stats()
 
 # Initialize API generator
-api_forge = ApiForge(
-    config=ForgeConfig(
-        project_name="API Test",
+api_prism = ApiPrism(
+    config=PrismConfig(
+        project_name="Prism Hub",
         version="0.1.0",
     ),
     app=app,
 )
 
 # Generate metadata routes
-api_forge.gen_metadata_routes(model_manager)
-# api_forge.gen_health_routes(model_manager)
-api_forge.gen_table_routes(model_manager)
-api_forge.gen_view_routes(model_manager)
-api_forge.gen_fn_routes(model_manager)
+api_prism.gen_metadata_routes(model_manager)
+# api_prism.gen_health_routes(model_manager)
+api_prism.gen_table_routes(model_manager)
+api_prism.gen_view_routes(model_manager)
+api_prism.gen_fn_routes(model_manager)
+
+api_prism.print_welcome(db_client)

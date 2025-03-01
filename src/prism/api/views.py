@@ -1,13 +1,15 @@
-# src/forge/api/views.py
-from forge.api.router import RouteGenerator
-from typing import Any, Callable, Dict, List, Optional, Type
+# src/prism/api/views.py
+from typing import Callable, List, Type
+
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import Table, text
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+
+from prism.api.router import RouteGenerator
 
 
-# src/forge/api/views.py (partial update)
+# src/prism/api/views.py (partial update)
 class ViewGenerator(RouteGenerator):
     """Generator for view routes."""
 
@@ -103,7 +105,7 @@ class ViewGenerator(RouteGenerator):
                         processed_record
                     )
                     processed_records.append(validated_record)
-                except Exception as e:
+                except Exception:
                     # Skip invalid records
                     pass
 

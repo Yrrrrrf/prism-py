@@ -1,4 +1,4 @@
-"""Advanced logging utilities for the Forge framework."""
+"""Advanced logging utilities for the Prism framework."""
 
 import re
 import time
@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from enum import Enum
 from functools import lru_cache
-from typing import Callable, Union, Optional
+from typing import Callable, Optional, Union
 
 
 class ColorCode(str, Enum):
@@ -178,7 +178,7 @@ class Logger:
 
     def __init__(
         self,
-        module_name: str = "forge",
+        module_name: str = "prism",
         level: LogLevel = LogLevel.INFO,
         enable_console: bool = True,
     ):
@@ -220,6 +220,14 @@ class Logger:
 
         print(self._format_msg(level, message))
 
+    def simple(self, message: str) -> None:
+        # same as the trace method but withouth the timestamp, level and module name
+        # more like a custom print function
+        # but only prints if the log level is set to trace
+        if not self.enable_console or self.level.value > LogLevel.TRACE.value:
+            return
+        print(message)
+
     def trace(self, message: str) -> None:
         self.log(LogLevel.TRACE, message)
 
@@ -229,7 +237,7 @@ class Logger:
     def info(self, message: str) -> None:
         self.log(LogLevel.INFO, message)
 
-    def warning(self, message: str) -> None:
+    def warn(self, message: str) -> None:
         self.log(LogLevel.WARNING, message)
 
     def error(self, message: str) -> None:

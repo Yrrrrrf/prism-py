@@ -8,6 +8,11 @@ wheels/
 
 # Virtual environments
 .venv
+
+# uv related
 uv.lock
-test/
 .ruff_cache/
+
+# some
+.env
+test/

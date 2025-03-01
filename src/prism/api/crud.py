@@ -1,12 +1,13 @@
-# src/forge/api/crud.py
-from typing import Any, Callable, Dict, List, Optional, Type, Union
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from sqlalchemy import Table
-from pydantic import BaseModel, create_model, Field
+# src/prism/api/crud.py
+from typing import Any, Callable, Dict, List, Optional, Type
 
-from forge.api.router import RouteGenerator
-from forge.common.types import ForgeBaseModel, get_eq_type, JSONBType, ArrayType
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field, create_model
+from sqlalchemy import Table
+from sqlalchemy.orm import Session
+
+from prism.api.router import RouteGenerator
+from prism.common.types import PrismBaseModel, get_eq_type
 
 
 class CrudGenerator(RouteGenerator):
@@ -39,7 +40,7 @@ class CrudGenerator(RouteGenerator):
 
     def initialize(self):
         """Initialize the generator with query model based on filtering options."""
-        from forge.common.types import create_query_params_model, QueryParams
+        from prism.common.types import create_query_params_model
 
         if self.enhanced_filtering:
             # Create query model with enhanced filtering options
@@ -58,7 +59,7 @@ class CrudGenerator(RouteGenerator):
             self.query_model = create_model(
                 f"{self.response_model.__name__}QueryParams",
                 **fields,
-                __base__=ForgeBaseModel,
+                __base__=PrismBaseModel,
             )
 
     def generate_routes(self):
@@ -152,7 +153,7 @@ class CrudGenerator(RouteGenerator):
                         processed_record
                     )
                     processed_results.append(validated_record)
-                except Exception as e:
+                except Exception:
                     # Log validation error but continue processing other records
                     pass
 

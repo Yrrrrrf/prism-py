@@ -1,15 +1,15 @@
 """Database client for connecting to and managing database connections."""
 
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Dict, Generator, List, Optional, Type, Union
+
 from sqlalchemy import CursorResult, Inspector, MetaData, Table, inspect, text
 from sqlalchemy.engine import Engine, create_engine
-from sqlalchemy.orm import Session, sessionmaker, DeclarativeBase
-from sqlalchemy.ext.automap import automap_base
-from dataclasses import dataclass, field
-from typing import Dict, Generator, List, Optional, Type, Union, ClassVar
-from enum import Enum
-from contextlib import contextmanager
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from forge.core.logging import *
+from prism.core.logging import *
 
 
 class DbType(str, Enum):

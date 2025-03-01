@@ -1,12 +1,12 @@
-"""Configuration management for the Forge framework."""
+"""Configuration management for the Prism framework."""
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 
 @dataclass(frozen=True)
-class ForgeConfig:
-    """Configuration for the Forge API framework.
+class PrismConfig:
+    """Configuration for the Prism API framework.
 
     Attributes:
         project_name: The name of your project

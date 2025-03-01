@@ -1,4 +1,4 @@
-# src/forge/api/metadata.py
+# src/prism/api/metadata.py
 """
 Database metadata API endpoints generation.
 
@@ -6,25 +6,25 @@ This module provides utilities for creating FastAPI routes that expose
 database structure information (schemas, tables, views, functions, etc.)
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, List
+
 from fastapi import APIRouter, HTTPException
 
-from forge.core.logging import log, color_palette
-from forge.db.models import ModelManager
-
 # Import the API response models and conversion functions from types.py
-from forge.common.types import (
-    ApiColumnReference, 
+from prism.common.types import (
     ApiColumnMetadata,
-    ApiTableMetadata, 
+    ApiColumnReference,
     ApiEnumMetadata,
-    ApiFunctionMetadata, 
-    ApiTriggerMetadata,
-    ApiSchemaMetadata, 
+    ApiFunctionMetadata,
+    ApiSchemaMetadata,
+    ApiTableMetadata,
     ApiTriggerEvent,
+    ApiTriggerMetadata,
+    to_api_function_metadata,
     to_api_function_parameter,
-    to_api_function_metadata
 )
+from prism.core.logging import log
+from prism.db.models import ModelManager
 
 
 # ===== Helper Functions =====
@@ -181,7 +181,9 @@ class MetadataRouter:
                     is_strict=proc_metadata.is_strict,
                 )
 
-    def _add_triggers_to_schema(self, schema: ApiSchemaMetadata, schema_name: str) -> None:
+    def _add_triggers_to_schema(
+        self, schema: ApiSchemaMetadata, schema_name: str
+    ) -> None:
         """Add triggers to a schema metadata object."""
         for trig_key, trig_metadata in self.model_manager.trig_cache.items():
             trig_schema, trig_name = trig_key.split(".")

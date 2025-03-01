@@ -1,14 +1,14 @@
 # This is a proposed reorganization to avoid duplicated type definitions
 
-# ==== src/forge/common/types.py ====
+# ==== src/prism/common/types.py ====
 # Keep all core data models and type logic here
 
-"""Type definitions and mapping utilities used across the forge-py framework."""
+"""Type definitions and mapping utilities used across the prism-py framework."""
 
 from __future__ import annotations
 
-import re
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -20,7 +20,6 @@ from typing import (
     Generic,
     List,
     Optional,
-    Set,
     Tuple,
     Type,
     TypeVar,
@@ -31,7 +30,6 @@ from typing import (
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
-
 
 # ===== Type Aliases =====
 SqlType = str  # SQL type string (e.g., "varchar(255)")
@@ -45,8 +43,8 @@ T = TypeVar("T")
 
 
 # ===== Base Models =====
-class ForgeBaseModel(BaseModel):
-    """Base model for all forge-generated models with optimal settings."""
+class PrismBaseModel(BaseModel):
+    """Base model for all prism-generated models with optimal settings."""
 
     model_config = ConfigDict(
         from_attributes=True,  # Allow ORM mode
@@ -132,7 +130,8 @@ class ColumnReference:
 # ===== API Response Models =====
 # These are the Pydantic models used specifically for API responses
 
-class ApiColumnReference(ForgeBaseModel):
+
+class ApiColumnReference(PrismBaseModel):
     """Reference to another database column (for foreign keys)."""
 
     schema_name: str = Field(alias="schema")
@@ -140,7 +139,7 @@ class ApiColumnReference(ForgeBaseModel):
     column: str
 
 
-class ApiColumnMetadata(ForgeBaseModel):
+class ApiColumnMetadata(PrismBaseModel):
     """Column metadata for table or view."""
 
     name: str
@@ -151,7 +150,7 @@ class ApiColumnMetadata(ForgeBaseModel):
     references: Optional[ApiColumnReference] = None
 
 
-class ApiEntityMetadata(ForgeBaseModel):
+class ApiEntityMetadata(PrismBaseModel):
     """Base class for database entity metadata."""
 
     name: str
@@ -164,7 +163,7 @@ class ApiTableMetadata(ApiEntityMetadata):
     columns: List[ApiColumnMetadata] = []
 
 
-class ApiEnumValue(ForgeBaseModel):
+class ApiEnumValue(PrismBaseModel):
     """Enum value information."""
 
     name: str
@@ -177,7 +176,7 @@ class ApiEnumMetadata(ApiEntityMetadata):
     values: List[str] = []
 
 
-class ApiFunctionParameter(ForgeBaseModel):
+class ApiFunctionParameter(PrismBaseModel):
     """Function parameter metadata."""
 
     name: str
@@ -187,7 +186,7 @@ class ApiFunctionParameter(ForgeBaseModel):
     default_value: Optional[str] = None
 
 
-class ApiReturnColumn(ForgeBaseModel):
+class ApiReturnColumn(PrismBaseModel):
     """Return column for table-returning functions."""
 
     name: str
@@ -206,7 +205,7 @@ class ApiFunctionMetadata(ApiEntityMetadata):
     is_strict: bool = False
 
 
-class ApiTriggerEvent(ForgeBaseModel):
+class ApiTriggerEvent(PrismBaseModel):
     """Trigger event information."""
 
     timing: str  # BEFORE, AFTER, INSTEAD OF
@@ -221,7 +220,7 @@ class ApiTriggerMetadata(ApiFunctionMetadata):
     trigger_data: ApiTriggerEvent
 
 
-class ApiSchemaMetadata(ForgeBaseModel):
+class ApiSchemaMetadata(PrismBaseModel):
     """Complete schema metadata including all database objects."""
 
     name: str
@@ -236,6 +235,7 @@ class ApiSchemaMetadata(ForgeBaseModel):
 # ===== Conversion Functions =====
 # These functions convert between internal data structures and API models
 
+
 def to_api_function_parameter(param: FunctionParameter) -> ApiFunctionParameter:
     """Convert internal function parameter to API response model."""
     return ApiFunctionParameter(
@@ -243,7 +243,9 @@ def to_api_function_parameter(param: FunctionParameter) -> ApiFunctionParameter:
         type=param.type,
         mode=param.mode,
         has_default=param.has_default,
-        default_value=str(param.default_value) if param.default_value is not None else None,
+        default_value=str(param.default_value)
+        if param.default_value is not None
+        else None,
     )
 
 
@@ -420,7 +422,7 @@ SQL_TYPE_MAPPINGS: List[TypeMapping] = [
 
 
 # ===== CRUD/API Helper Models =====
-class QueryParams(ForgeBaseModel):
+class QueryParams(PrismBaseModel):
     """Base model for query parameters."""
 
     limit: Optional[int] = Field(
@@ -536,7 +538,7 @@ def create_dynamic_model(json_data: JsonData, model_name: str) -> ModelType:
             fields[key] = (Optional[inferred_type], Field(default=None))
 
     # Create model with generated fields
-    return create_model(model_name, __base__=ForgeBaseModel, **fields)
+    return create_model(model_name, __base__=PrismBaseModel, **fields)
 
 
 def parse_array_type(sql_type: str) -> Type:

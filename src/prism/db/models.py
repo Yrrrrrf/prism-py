@@ -1,28 +1,28 @@
-# src/forge/db/models.py
+# src/prism/db/models.py
 """Database model management and metadata loading."""
 
-from typing import Dict, List, Tuple, Type, Any, Optional, Union
-import json
 from dataclasses import dataclass, field
-from sqlalchemy import Table, Column, MetaData, inspect, text
-from sqlalchemy import Enum as SQLAlchemyEnum
-from pydantic import BaseModel, create_model, Field, ConfigDict
 from enum import Enum as PyEnum
+from typing import Any, Dict, List, Optional, Tuple, Type
 
-from forge.core.logging import log, color_palette, bold
-from forge.common.types import (
-    EnumInfo,
-    FunctionParameter,
-    FunctionMetadata,
-    FunctionType,
-    ObjectType,
-    ForgeBaseModel,
+from pydantic import BaseModel, Field, create_model
+from sqlalchemy import Enum as SQLAlchemyEnum
+from sqlalchemy import Table, inspect, text
+from sqlalchemy.orm import DeclarativeBase, declared_attr
+
+from prism.common.types import (
     ArrayType,
+    EnumInfo,
+    FunctionMetadata,
+    FunctionParameter,
+    FunctionType,
     JSONBType,
+    ObjectType,
+    PrismBaseModel,
     get_eq_type,
 )
-from forge.db.client import DbClient
-from sqlalchemy.orm import DeclarativeBase, declared_attr
+from prism.core.logging import bold, color_palette, log
+from prism.db.client import DbClient
 
 
 class BaseSQLModel(DeclarativeBase):
@@ -135,7 +135,7 @@ class ModelManager:
                             )
 
                     pydantic_model = create_model(
-                        f"Pydantic_{table.name}", __base__=ForgeBaseModel, **fields
+                        f"Pydantic_{table.name}", __base__=PrismBaseModel, **fields
                     )
 
                     # Create SQLAlchemy model with proper metadata binding
@@ -251,12 +251,12 @@ class ModelManager:
                     # Create models
                     QueryModel = create_model(
                         f"View_{table.name}_QueryParams",
-                        __base__=ForgeBaseModel,
+                        __base__=PrismBaseModel,
                         **query_fields,
                     )
 
                     ResponseModel = create_model(
-                        f"View_{table.name}", __base__=ForgeBaseModel, **response_fields
+                        f"View_{table.name}", __base__=PrismBaseModel, **response_fields
                     )
 
                     # Store in cache
@@ -267,7 +267,6 @@ class ModelManager:
                     )
 
         log.debug(f"Loaded {color_palette['view'](str(len(self.view_cache)))} views")
-
 
     def _get_sample_data(
         self, schema: str, table_name: str
@@ -282,7 +281,6 @@ class ModelManager:
         except Exception as e:
             log.debug(f"Could not get sample data for {schema}.{table_name}: {str(e)}")
         return None
-
 
     def _load_functions(self):
         """Load database functions, procedures, and triggers."""
