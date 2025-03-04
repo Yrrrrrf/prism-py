@@ -6,12 +6,11 @@
 <div align="center">
 
 [![PyPI version](https://img.shields.io/pypi/v/prism-py)](https://pypi.org/project/prism-py/)
-[![GitHub: Prism-py](https://img.shields.io/badge/GitHub-prism--py-181717?logo=github)](https://github.com/Yrrrrrf/prims-py)
+[![GitHub: Prism-py](https://img.shields.io/badge/GitHub-prism--py-181717?logo=github)](https://github.com/Yrrrrrf/prism-py)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://choosealicense.com/licenses/mit/)
 [![Downloads](https://pepy.tech/badge/prism-py)](https://pepy.tech/project/prism-py)
 
 </div>
-
 
 ## Overview
 

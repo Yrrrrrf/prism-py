@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "prism-py"
-version = "0.0.1-rc-1"
+version = "0.0.1"
 description = "Automatic API generator that creates a REST API mirror of a database"
 readme = "README.md"
 keywords = ["api", "rest", "database", "fastapi", "sqlalchemy"]
@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "fastapi>=0.115.10",
+    "fastapi>=0.115.11",
     "sqlalchemy>=2.0.38",
     "psycopg2>=2.9.10",
     "pydantic>=2.10.6",

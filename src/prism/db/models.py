@@ -184,7 +184,7 @@ class ModelManager:
                                     schema=schema,
                                 )
                                 log.trace(
-                                    f"Loaded enum: {color_palette['schema'](schema)}.{color_palette['enum'](enum_name)}"
+                                    f"Loaded enum: {color_palette['enum'](schema)}.{color_palette['enum'](enum_name)}"
                                 )
 
         log.debug(f"Loaded {color_palette['enum'](str(len(self.enum_cache)))} enums")
