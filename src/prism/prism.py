@@ -119,6 +119,7 @@ class ApiPrism:
                 f"\t\t{column.name:<24} {red(f'{nullable:<2}')}{dim(str(column.type)[:20]):<32} "
                 f"{type_str:<16} {flags_str} {values if values else ''}"
             )
+        log.simple("")
 
     def gen_table_routes(
         self, model_manager: ModelManager, enhanced_filtering: bool = True
@@ -357,7 +358,15 @@ class ApiPrism:
 
                 # Log query for debugging
                 log.debug(f"Executing query: {query}")
-                log.debug(f"Parameters: {params.model_dump()}")
+                log.warn(
+                    red("CHECK THIS!!! I MEAN, THE PROC GENERATOR IS NOT TESTED YET!!!")
+                )
+                log.warn(
+                    red("CHECK THIS!!! I MEAN, THE PROC GENERATOR IS NOT TESTED YET!!!")
+                )
+                log.warn(
+                    red("CHECK THIS!!! I MEAN, THE PROC GENERATOR IS NOT TESTED YET!!!")
+                )
 
                 # Execute procedure
                 db.execute(text(query), params.model_dump())
@@ -392,8 +401,8 @@ class ApiPrism:
                     query = f"SELECT * FROM {schema}.{fn_name}({', '.join(param_list)})"
 
                     # Log the query and parameters for debugging
-                    log.debug(f"Executing query: {query}")
-                    log.debug(f"Parameters: {param_values}")
+                    log.trace(f"Executing query: {query}")
+                    log.trace(f"Parameters: {param_values}")
 
                     # Execute function
                     result = db.execute(text(query), param_values)
@@ -473,12 +482,8 @@ class ApiPrism:
                 f"{color_palette['function' if route_type == 'fn' else 'procedure'](fn_name)}"
             )
 
-            log.trace(f"  {color_palette['function'](fn_name)}")
-            print(f"    Return: {fn_metadata.return_type}")
-            if fn_metadata.parameters:
-                ("    Parameters:")
-                for param in fn_metadata.parameters:
-                    print(f"      {param.name}: {param.type}")
+            self._print_function_structure(fn_metadata)
+
             # Create input model for parameters
             input_fields = {}
             for param in fn_metadata.parameters:
@@ -589,8 +594,8 @@ class ApiPrism:
         if not return_type:
             return {"result": (str, ...)}
 
-        # Debug information
-        log.debug(f"Parsing return type: {return_type}")
+        # # Debug information
+        # log.debug(f"Parsing return type: {return_type}")
 
         # Handle scalar return types that might be mislabeled
         if not ("TABLE" in return_type or "SETOF" in return_type):
@@ -654,6 +659,68 @@ class ApiPrism:
             return {"result": (str, ...)}
 
         return fields
+
+    def _print_function_structure(self, fn_metadata: FunctionMetadata) -> None:
+        """Print detailed function structure with parameters and return type."""
+        # Format and print the return type
+        return_type = fn_metadata.return_type or "void"
+        fn_type = str(fn_metadata.type).split(".")[-1]  # Get just the enum name part
+
+        # Create a type description with color formatting
+        if "TABLE" in return_type:
+            type_display = violet("TABLE")
+            if "(" in return_type:
+                # For table functions with column definitions
+                columns_part = return_type.replace("TABLE", "").strip("() ")
+                type_display = f"{type_display}{dim(f'({columns_part})')}"
+        elif "SETOF" in return_type:
+            base_type = return_type.replace("SETOF", "").strip()
+            type_display = f"{violet('SETOF')} {violet(base_type)}"
+        else:
+            type_display = violet(return_type)
+
+        log.simple(f"\t-> {type_display} {yellow(f'({fn_type})')}")
+
+        if fn_metadata.description:
+            log.simple(f"{dim(fn_metadata.description)}")
+
+        # Print parameters section header if there are any
+        if fn_metadata.parameters:
+            # Print each parameter with consistent formatting
+            for param in fn_metadata.parameters:
+                # Format parameter mode
+                mode_str = ""
+
+                match param.mode:
+                    case "IN":
+                        mode_str = dim("IN")
+                    case "OUT":
+                        mode_str = green("OUT")
+                    case "INOUT":
+                        mode_str = yellow("INOUT")
+                    case "VARIADIC":
+                        mode_str = blue("VARIADIC")
+
+                # Format default value if present
+                default_str = ""
+                if param.has_default:
+                    default_value = (
+                        str(param.default_value)
+                        if param.default_value is not None
+                        else "NULL"
+                    )
+                    default_str = dim(f" DEFAULT {default_value}")
+
+                # Print parameter with consistent spacing/formatting as table columns
+                log.simple(
+                    f"\t\t{param.name:<22} {red('  ')}{dim(param.type):<28} "
+                    f"{violet(mode_str):<8}{default_str}"
+                )
+            log.simple("")
+
+        # Print additional metadata if available
+        if fn_metadata.is_strict:
+            log.simple(f"\t\t{'Strict:':<24} {yellow('TRUE')}")
 
 
 # * Additional utility methods
