@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="./resources/img/prism.png" alt="Prism Icon" width="128" height="128" description="A prism that can take one light source and split it into multiple colors!">
+  <img src="https://raw.githubusercontent.com/Yrrrrrf/prism-py/main/resources/img/prism.png" alt="Prism Icon" width="128" height="128" description="A prism that can take one light source and split it into multiple colors!">
   <div align="center">prism-py</div>
 </h1>
 
@@ -16,7 +16,7 @@
 
 **prism-py** is a Python library for automatic API generation from database schemas. It creates a complete REST API that mirrors your database structure, handling tables, views, functions, and procedures with proper type safety and validation.
 
-Built on top of [FastAPI](https://fastapi.tiangolo.com/) and [SQLAlchemy](https://www.sqlalchemy.org/), prism-py eliminates boilerplate code and provides a comprehensive type system for API development, allowing you to focus on business logic instead of API structure.
+Built on top of [FastAPI](https://fastapi.tiangolo.com/), prism-py eliminates boilerplate code and provides a comprehensive type system for API development, allowing you to focus on business logic instead of API structure.
 
 > **Note:** prism-py is part of the Prism ecosystem, which includes [prism-ts](https://www.npmjs.com/package/ts-forge) (formerly ts-prism), a TypeScript client library that consumes prism-py APIs with full type safety.
 
