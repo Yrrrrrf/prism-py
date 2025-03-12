@@ -18,7 +18,7 @@
 
 Built on top of [FastAPI](https://fastapi.tiangolo.com/), prism-py eliminates boilerplate code and provides a comprehensive type system for API development, allowing you to focus on business logic instead of API structure.
 
-> **Note:** prism-py is part of the Prism ecosystem, which includes [prism-ts](https://www.npmjs.com/package/ts-forge) (formerly ts-prism), a TypeScript client library that consumes prism-py APIs with full type safety.
+> **Note:** This library is part of the Prism ecosystem, which includes [**prism-ts**](https://github.com/Yrrrrrf/prism-ts), a TypeScript client library that consumes prism-py APIs with full type safety.
 
 ## Key Features
 
