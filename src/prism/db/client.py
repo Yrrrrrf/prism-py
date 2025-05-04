@@ -151,9 +151,10 @@ class DbClient:
             user, database = self.exec_raw_sql(
                 "SELECT current_user, current_database()"
             ).fetchone()
-            log.info(
-                f"Connected to {info_style(database)} database as {success_style(user)}"
-            )
+            # todo: Check on a best way to log the connection info!
+            # log.info(
+            #     f"Connected to {info_style(database)} database as {success_style(user)}"
+            # )
             # log.info(f"Connected to database as {color_palette['schema'](user)}")
             return (user, database)
         except Exception as e:

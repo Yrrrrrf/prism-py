@@ -75,6 +75,8 @@ class HealthGenerator(RouteGenerator):
             # Check database connection
             is_connected = False
             try:
+                # todo: Remove the print statement in production
+                # todo: Check the statement on the db_client.test_connection method!
                 self.model_manager.db_client.test_connection()
                 is_connected = True
             except Exception:
