@@ -47,9 +47,6 @@ model_manager = ModelManager(
     ],
 )
 
-# Display database statistics
-model_manager.log_metadata_stats()
-
 # Initialize API generator
 api_prism = ApiPrism(
     config=PrismConfig(
@@ -65,5 +62,9 @@ api_prism.gen_metadata_routes(model_manager)
 api_prism.gen_table_routes(model_manager)
 api_prism.gen_view_routes(model_manager)
 api_prism.gen_fn_routes(model_manager)
+
+
+# Display database statistics
+model_manager.log_metadata_stats()
 
 api_prism.print_welcome(db_client)
