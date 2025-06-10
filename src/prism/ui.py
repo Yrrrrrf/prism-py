@@ -1,63 +1,98 @@
 # src/prism/ui.py
 
+import re
+from typing import Any, Dict
+
 from rich.align import Align
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from sqlalchemy import Column, Table as SQLTable
+from sqlalchemy import Column
 from sqlalchemy import Enum as SQLAlchemyEnum
+from sqlalchemy import Table as SQLTable
 
-from .common.types import FunctionMetadata, JSONBType, get_eq_type
+from .common.types import JSONBType, get_eq_type
 
 # --- Global Console ---
-# All modules will import this single console instance.
 console = Console()
 
-# --- Re-implementation of print helpers using Rich ---
+# --- Helper Function ---
+
+
+def _get_base_type(type_: Any) -> str:
+    """Extracts the base type name from a Python type object or string."""
+    type_str = str(type_)
+    if "typing.Optional" in type_str or "Union" in type_str:
+        # Extract from Optional[<type>] or Union[<type>, None]
+        match = re.search(r"\[(.*), None\]|\[(.*)\]", type_str)
+        if match:
+            # Get the first non-None group from the match
+            base_type_str = next((g for g in match.groups() if g is not None), "")
+            return base_type_str.split(".")[-1]
+
+    if isinstance(type_, type):
+        return type_.__name__
+    return type_str
+
+
+# --- UI Display Functions ---
 
 
 def display_table_structure(table: SQLTable) -> None:
-    """Prints detailed table structure using a rich Table."""
-
-    structure_table = Table(
-        box=None, padding=(0, 1), show_header=False, show_edge=False
-    )
-    structure_table.add_column("Name", style="cyan", no_wrap=True, width=24)
-    structure_table.add_column("Type", style="green", width=32)
-    structure_table.add_column("Details", style="white")
+    """Prints detailed table structure with precise manual formatting."""
 
     for column in table.columns:
-        col_name = f"{column.name}{'*' if not column.nullable else ''}"
-        col_type = str(column.type)
+        # --- Column 1 & 2: Name and Nullable Marker ---
+        name_str = f"    {column.name:<24}"  # 4 spaces for indentation + 24 for name
+        nullable_str = "[red]*[/]" if not column.nullable else " "
 
-        details = []
+        # --- Column 3: SQL Type ---
+        sql_type_str = f"{str(column.type):<20}"  # Padded SQL type
+
+        # --- Column 4: Python Type ---
+        py_type = get_eq_type(str(column.type), nullable=column.nullable)
+        if isinstance(py_type, JSONBType):
+            python_type_str = f"{'JSONB':<15}"
+        elif isinstance(column.type, SQLAlchemyEnum):
+            # Use the actual name of the enum type
+            python_type_str = f"{column.type.name:<15}"
+        else:
+            python_type_str = f"{_get_base_type(py_type):<15}"
+
+        python_type_str = f"[violet]{python_type_str}[/]"
+
+        # --- Column 5: Flags (PK, FK, Enum values) ---
+        flags = []
         if column.primary_key:
-            details.append("[yellow]PK[/yellow]")
+            flags.append("[green]PK[/]")
         if column.foreign_keys:
             fk = next(iter(column.foreign_keys))
-            details.append(
-                f"[blue]FK -> {fk.column.table.schema}.{fk.column.table.name}[/blue]"
+            flags.append(
+                f"[cyan]FK -> {fk.column.table.schema}.[bold]{fk.column.table.name}[/bold][/]"
             )
-
         if isinstance(column.type, SQLAlchemyEnum):
-            details.append(
-                f"[magenta]Enum[/magenta]: {', '.join(map(str, column.type.enums))}"
-            )
+            flags.append(f"[yellow dim]({', '.join(map(str, column.type.enums))})[/]")
 
-        py_type = get_eq_type(str(column.type))
-        if isinstance(py_type, JSONBType):
-            details.append("[bold magenta]JSONB[/bold magenta]")
+        flags_str = " ".join(flags)
 
-        structure_table.add_row(col_name, col_type, " ".join(details))
+        # --- Assemble and Print the Line ---
+        # The spacing is now manually controlled by the f-string padding.
+        # Example: `name` `*` `sql_type` `py_type` `flags`
+        line = (
+            f"{name_str}"
+            f"{nullable_str} "
+            f"[dim]{sql_type_str}[/] "
+            f"{python_type_str} "
+            f"{flags_str}"
+        )
+        console.print(line)
 
-    console.print(structure_table)
-    console.print()
+    console.print()  # Add a blank line after the structure for spacing
 
 
-def display_function_structure(fn_metadata: FunctionMetadata) -> None:
+def display_function_structure(fn_metadata: Any) -> None:
     """Prints detailed function/procedure structure using rich."""
-
     return_type = fn_metadata.return_type or "void"
     fn_type = str(fn_metadata.type).split(".")[-1].upper()
     console.print(
@@ -83,6 +118,65 @@ def display_function_structure(fn_metadata: FunctionMetadata) -> None:
             params_table.add_row(param.name, param.type, f"{mode_str}{default_str}")
         console.print(params_table)
     console.print()
+
+
+def _get_operation_id(path: str, name: str, method: str) -> str:
+    """
+    Correctly predicts the operation_id generated by FastAPI.
+    Example: path='/dt/{schema}/tables', name='get_tables' -> 'get_tables_dt__schema__tables_get'
+    """
+
+    path_components = path.strip("/").split("/")
+
+    processed_components = []
+    for component in path_components:
+        if component.startswith("{") and component.endswith("}"):
+            processed_components.append(f"__{component[1:-1]}__")
+        else:
+            processed_components.append(component)
+
+    path_part = "_".join(processed_components).replace("___", "__")
+
+    return f"{name}_{path_part}_{method.lower()}"
+
+
+def display_route_links(
+    db_client: "DbClient",
+    title: str,
+    tag: str,
+    endpoints: Dict[str, tuple[str, str, str]],
+    port: int = 8000,
+) -> None:
+    """
+    Constructs and prints link-enabled documentation summary for a group of routes.
+
+    Args:
+        db_client: The database client instance to get host info.
+        title: The title for the route group (e.g., "Health API").
+        tag: The OpenAPI tag for this route group (e.g., "Health").
+        endpoints: A dictionary of {description: (path_suffix, function_name, http_method)}.
+        port: The server port.
+    """
+    host = db_client.config.host
+    docs_base_url = f"http://{host}:{port}/docs"
+    tag_link = f"{docs_base_url}#/{tag}"
+
+    console.print(
+        Text.from_markup(
+            f"  [bold]{title} available.[/] Main Docs: [link={tag_link}]{tag}[/link]"
+        )
+    )
+    console.print()
+
+    for description, (path, func_name, method) in endpoints.items():
+        operation_id = _get_operation_id(path, func_name, method)
+        full_docs_link = f"{docs_base_url}#/{tag}/{operation_id}"
+
+        console.print(
+            Text.from_markup(
+                f"\t{description:<25} [link={full_docs_link}][dim]({method.upper()} {path})[/dim][/link]"
+            )
+        )
 
 
 def print_welcome(project_name: str, version: str, host: str, port: int) -> None:

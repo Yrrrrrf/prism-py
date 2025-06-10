@@ -75,11 +75,6 @@ class MetadataRouter:
 
     def register_all_routes(self) -> None:
         """Register all metadata routes."""
-        # Replace log.info with console.print
-        console.print(
-            f"[dim]Registering metadata routes with prefix [bold]{self.prefix}[/bold][/dim]"
-        )
-
         # Register routes
         self.register_schemas_route()
         self.register_tables_route()

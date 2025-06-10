@@ -8,7 +8,7 @@ from prism.api import MetadataRouter
 from prism.db import DbClient, DbConfig, PoolConfig
 from prism.prism import ApiPrism, ModelManager, PrismConfig
 
-__version__ = "0.0.1"
+__version__ = "0.0.5"
 
 
 # Create the function that was being imported

@@ -23,6 +23,7 @@ from prism.db.models import ModelManager
 from prism.ui import (
     console,
     display_function_structure,
+    display_route_links,
     display_table_structure,
     print_welcome,
 )
@@ -68,14 +69,14 @@ class ApiPrism:
 
     def print_welcome(self, db_client: DbClient) -> None:
         """Print welcome message with app information."""
-        db_client.test_connection()
-        # Use the new UI function for a rich welcome panel
+        print()
         print_welcome(
             project_name=self.config.project_name,
             version=self.config.version,
             host=db_client.config.host,
-            port=8000,  # Assuming default port
+            port=db_client.config.port,
         )
+        print()
 
     def gen_table_routes(
         self, model_manager: ModelManager, enhanced_filtering: bool = True
@@ -87,7 +88,7 @@ class ApiPrism:
             model_manager: The model manager containing database metadata
             enhanced_filtering: Whether to enable enhanced filtering (sorting, pagination)
         """
-        console.rule("[bold green]Generating Table Routes")
+        console.rule("[bold blue]Generating Table Routes", style="bold blue")
 
         from prism.api.crud import CrudGenerator
 
@@ -101,9 +102,7 @@ class ApiPrism:
         # Generate routes for each table
         for table_key, table_data in model_manager.table_cache.items():
             schema, table_name = table_key.split(".")
-            console.print(
-                f"Generating CRUD for: [cyan]{schema}[/].[blue]{table_name}[/]"
-            )
+            console.print(f"Generating CRUD for: [cyan]{schema}.[bold]{table_name}[/]")
 
             # Call the new UI function instead of the old private method
             display_table_structure(table_data[0])
@@ -128,12 +127,14 @@ class ApiPrism:
                 self.app.include_router(self.routers[schema])
 
         console.print(
-            f"[yellow]Generated table routes for {len(model_manager.table_cache)} tables"
+            f"[dim bold blue]Generated table routes for {len(model_manager.table_cache)} tables\n"
         )
 
     def gen_view_routes(self, model_manager: ModelManager) -> None:
         """Generate routes for all views."""
-        console.rule("[bold green]Generating View Routes")
+        console.rule(
+            "[bold light_green]Generating View Routes", style="bold light_green"
+        )
 
         from prism.api.views import ViewGenerator
 
@@ -176,69 +177,16 @@ class ApiPrism:
                 self.app.include_router(self.routers[router_key])
 
         console.print(
-            f"[yellow]Generated view routes for {len(model_manager.view_cache)} views"
+            f"[dim bold green]Generated view routes for {len(model_manager.view_cache)} views\n"
         )
-
-    def gen_metadata_routes(self, model_manager: ModelManager) -> None:
-        """
-        Generate metadata routes for database schema inspection.
-        """
-        console.rule("[bold magenta]Generating Metadata Routes")
-
-        # Create metadata router
-        router = APIRouter(prefix="/dt", tags=["Metadata"])
-
-        # Create and configure metadata router
-        metadata_router = MetadataRouter(router, model_manager)
-        metadata_router.register_all_routes()
-
-        # Register the router with the app
-        self.app.include_router(router)
-
-        console.print("[yellow]Generated metadata routes")
-
-    def gen_health_routes(self, model_manager: ModelManager) -> None:
-        """
-        Generate health check routes for API monitoring.
-        """
-        console.rule("[bold blue]Generating Health Routes")
-
-        from prism.api.health import HealthGenerator
-
-        # Create health router
-        router = APIRouter(prefix="/health", tags=["Health"])
-
-        # Create and use health generator
-        generator = HealthGenerator(
-            router=router,
-            model_manager=model_manager,
-            version=self.config.version,
-            start_time=self.start_time,
-        )
-        generator.generate_routes()
-
-        # Register the router with the app
-        self.app.include_router(router)
-
-        console.print("[yellow]Generated health routes")
-
-    def generate_all_routes(self, model_manager: ModelManager) -> None:
-        """
-        Generate all routes for the API.
-
-        Convenience method to generate all route types in the recommended order.
-        """
-        self.gen_metadata_routes(model_manager)
-        self.gen_health_routes(model_manager)
-        self.gen_table_routes(model_manager)
-        self.gen_view_routes(model_manager)
-        self.gen_fn_routes(model_manager)
 
     def gen_fn_routes(self, model_manager: ModelManager) -> None:
         """
         Generate routes for all functions, procedures, and triggers.
         """
-        console.rule("[bold red]Generating Function & Procedure Routes[/]")
+        console.rule(
+            "[bold red]Generating Function & Procedure Routes", style="bold red"
+        )
 
         # Initialize function routers for each schema
         for schema in model_manager.include_schemas:
@@ -261,9 +209,97 @@ class ApiPrism:
                 self.app.include_router(self.routers[router_key])
 
         console.print(
-            f"[yellow]Generated function routes for {len(model_manager.fn_cache)} functions "
-            f"and {len(model_manager.proc_cache)} procedures"
+            f"[dim bold red]Generated function routes for {len(model_manager.fn_cache)} functions "
+            f"and {len(model_manager.proc_cache)} procedures\n"
         )
+
+    def gen_metadata_routes(self, model_manager: ModelManager) -> None:
+        """
+        Generate metadata routes for database schema inspection.
+        """
+        console.rule("[bold cyan]Generating Metadata Routes", style="bold cyan")
+
+        tag = "Metadata"
+        router = APIRouter(prefix="/dt", tags=[tag])
+
+        metadata_router = MetadataRouter(router, model_manager)
+        metadata_router.register_all_routes()
+        self.app.include_router(router)
+
+        display_route_links(
+            db_client=model_manager.db_client,
+            title="Metadata API",
+            tag=tag,
+            endpoints={
+                # "Description": ("path_with_prefix", "handler_function_name", "METHOD")
+                "Get schema structure": ("/dt/schemas", "get_schemas", "GET"),
+                "Get schema tables": ("/dt/{schema}/tables", "get_tables", "GET"),
+                "Get schema views": ("/dt/{schema}/views", "get_views", "GET"),
+                "Get schema enums": ("/dt/{schema}/enums", "get_enums", "GET"),
+                "Get schema functions": (
+                    "/dt/{schema}/functions",
+                    "get_functions",
+                    "GET",
+                ),
+                "Get schema procedures": (
+                    "/dt/{schema}/procedures",
+                    "get_procedures",
+                    "GET",
+                ),
+                "Get schema triggers": (
+                    "/dt/{schema}/triggers",
+                    "get_triggers",
+                    "GET",
+                ),
+            },
+        )
+        console.print("\n[dim bold cyan]Generated metadata routes\n")
+
+    def gen_health_routes(self, model_manager: ModelManager) -> None:
+        """
+        Generate health check routes for API monitoring.
+        """
+        console.rule("[bold green]Generating Health Routes", style="bold green")
+
+        from prism.api.health import HealthGenerator
+
+        tag = "Health"
+        router = APIRouter(prefix="/health", tags=[tag])
+
+        generator = HealthGenerator(
+            router=router,
+            model_manager=model_manager,
+            version=self.config.version,
+            start_time=self.start_time,
+        )
+        generator.generate_routes()
+        self.app.include_router(router)
+
+        display_route_links(
+            db_client=model_manager.db_client,
+            title="Health API",
+            tag=tag,
+            endpoints={
+                # "Description": ("/path", "handler_function_name", "METHOD")
+                "Full status check": ("/health", "health_check", "GET"),
+                "Simple ping": ("/health/ping", "ping", "GET"),
+                "Cache status": ("/health/cache", "cache_status", "GET"),
+                "Clear cache": ("/health/clear-cache", "clear_cache", "POST"),
+            },
+        )
+        console.print("\n[dim bold green]Generated health routes\n")
+
+    def generate_all_routes(self, model_manager: ModelManager) -> None:
+        """
+        Generate all routes for the API.
+
+        Convenience method to generate all route types in the recommended order.
+        """
+        self.gen_metadata_routes(model_manager)
+        self.gen_health_routes(model_manager)
+        self.gen_table_routes(model_manager)
+        self.gen_view_routes(model_manager)
+        self.gen_fn_routes(model_manager)
 
     def _generate_function_routes(
         self,

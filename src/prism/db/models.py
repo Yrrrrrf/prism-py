@@ -79,7 +79,7 @@ class ModelManager:
         engine = self.db_client.engine
 
         for schema in self.include_schemas:
-            console.print(f"[dim]Processing schema: [cyan]{schema}[/][/dim]")
+            console.print(f"Processing schema: [cyan bold]{schema}[/]")
 
             for table in metadata.tables.values():
                 if (
@@ -153,11 +153,9 @@ class ModelManager:
                     key = f"{schema}.{table.name}"
                     self.table_cache[key] = (table, (pydantic_model, sqlalchemy_model))
                     console.print(
-                        f"[dim]  Loaded table: [cyan]{schema}[/].[blue]{table.name}[/][/dim]"
+                        f"\t[dim]Loaded table: [cyan]{schema}[/].[blue bold]{table.name}[/]"
                     )
-        console.print(
-            f"[dim]Loaded [bold blue]{len(self.table_cache)}[/] tables.[/dim]"
-        )
+        console.print(f"Loaded [bold blue]{len(self.table_cache)}[/] tables.\n")
 
     def _load_enums(self):
         """Load database enums."""
@@ -181,11 +179,9 @@ class ModelManager:
                                     schema=schema,
                                 )
                                 console.print(
-                                    f"[dim]  Loaded enum: [cyan]{schema}[/].[magenta]{enum_name}[/][/dim]"
+                                    f"\t[dim]Loaded enum: [cyan]{schema}[/].[yellow bold]{enum_name}[/]"
                                 )
-        console.print(
-            f"[dim]Loaded [bold magenta]{len(self.enum_cache)}[/] enums.[/dim]"
-        )
+        console.print(f"Loaded [bold yellow]{len(self.enum_cache)}[/] enums.\n")
 
     def _load_views(self):
         """Load database views."""
@@ -234,9 +230,9 @@ class ModelManager:
                     key = f"{schema}.{table.name}"
                     self.view_cache[key] = (table, (QueryModel, ResponseModel))
                     console.print(
-                        f"[dim]  Loaded view: [cyan]{schema}[/].[green]{table.name}[/][/dim]"
+                        f"\t[dim]Loaded view: [cyan]{schema}[/].[green bold]{table.name}[/]"
                     )
-        console.print(f"[dim]Loaded [bold green]{len(self.view_cache)}[/] views.[/dim]")
+        console.print(f"Loaded [bold green]{len(self.view_cache)}[/] views.\n")
 
     def _get_sample_data(
         self, schema: str, table_name: str
@@ -261,9 +257,9 @@ class ModelManager:
             trig_cache,
         )
         console.print(
-            f"[dim]Loaded [bold red]{len(fn_cache)}[/] functions, "
+            f"Loaded [bold red]{len(fn_cache)}[/] functions, "
             f"[bold yellow]{len(proc_cache)}[/] procedures, "
-            f"and [bold red]{len(trig_cache)}[/] triggers.[/dim]"
+            f"and [bold orange1]{len(trig_cache)}[/] triggers.\n"
         )
 
     def _discover_functions(self):
@@ -358,7 +354,7 @@ class ModelManager:
                 color_map = {
                     "function": "red",
                     "procedure": "yellow",
-                    "trigger": "bold red",
+                    "trigger": "orange1",
                 }
                 color = color_map.get(row.object_type, "white")
 
@@ -370,7 +366,7 @@ class ModelManager:
                     trigger_cache[component] = metadata
 
                 console.print(
-                    f"[dim]  Loaded {row.object_type}: [cyan]{row.schema}[/].[{color}]{row.name}[/][/dim]"
+                    f"\t[dim]Loaded {row.object_type}: [cyan]{row.schema}[/].[{color} bold]{row.name}[/]"
                 )
         return function_cache, procedure_cache, trigger_cache
 
@@ -396,14 +392,14 @@ class ModelManager:
             }
 
         console.rule("[bold]ModelManager Statistics")
-        table = Table(header_style="bold magenta", show_footer=True)
+        table = Table(header_style="bold", show_footer=True)
         table.add_column("Schema", style="cyan", no_wrap=True, footer="[bold]TOTAL[/]")
         table.add_column("Tables", style="blue", justify="right")
         table.add_column("Views", style="green", justify="right")
         table.add_column("Enums", style="magenta", justify="right")
         table.add_column("Functions", style="red", justify="right")
         table.add_column("Procedures", style="yellow", justify="right")
-        table.add_column("Triggers", style="bold red", justify="right")
+        table.add_column("Triggers", style="orange1", justify="right")
         table.add_column("Total", justify="right", style="bold")
 
         totals = {key: 0 for key in stats.get(self.include_schemas[0], {}).keys()}
@@ -427,7 +423,7 @@ class ModelManager:
         table.columns[3].footer = f"[magenta]{totals['enums']}[/]"
         table.columns[4].footer = f"[red]{totals['functions']}[/]"
         table.columns[5].footer = f"[yellow]{totals['procedures']}[/]"
-        table.columns[6].footer = f"[bold red]{totals['triggers']}[/]"
+        table.columns[6].footer = f"[orange1]{totals['triggers']}[/]"
         table.columns[7].footer = f"[bold]{sum(totals.values())}[/]"
 
         console.print(table)

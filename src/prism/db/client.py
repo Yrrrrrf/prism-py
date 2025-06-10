@@ -219,7 +219,7 @@ class DbClient:
         return relationships
 
     def log_metadata_stats(self):
-        """Log database connection metadata and statistics using a rich Table."""
+        """Log database connection metadata and statistics with a clean, indented layout."""
         result = self.exec_raw_sql("SELECT current_user, current_database()").fetchone()
         if not result:
             console.print("[red]Could not retrieve user and database for stats.[/]")
@@ -228,17 +228,20 @@ class DbClient:
         user, database = result
         db_version = self.get_db_version()
 
-        table = Table(
-            title="[bold]Database Connection Info[/bold]", show_header=False, box=None
-        )
-        table.add_column("Label", style="dim")
-        table.add_column("Value")
+        console.print("[bold italic]Database Connection Info[/bold italic]")
 
-        table.add_row("Version", f"[white]{db_version}[/]")
-        table.add_row("Type", f"[green]{self.config.db_type.name}[/]")
-        table.add_row("Driver", f"[green]{self.config.driver_type.name}[/]")
-        table.add_row("Database", f"[blue]{database}[/]")
-        table.add_row("User", f"[green]{user}[/]")
-        table.add_row("Host", f"[blue]{self.config.host}:{self.config.port}[/]")
+        info_data = [
+            ("Version", f"[white]{db_version}[/]"),
+            ("Type", f"[green]{self.config.db_type.name}[/]"),
+            ("Driver", f"[green]{self.config.driver_type.name}[/]"),
+            ("Database", f"[blue]{database}[/]"),
+            ("User", f"[green]{user}[/]"),
+            ("Host", f"[blue]{self.config.host}:{self.config.port}[/]"),
+        ]
 
-        console.print(table)
+        for label, value in info_data:
+            # Manually construct each line for precise control
+            # 4 spaces for indentation, -12 for left-aligned label column
+            console.print(f"    {label:<12}{value}")
+
+        console.print()  # Add a blank line for spacing
