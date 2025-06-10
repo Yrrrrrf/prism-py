@@ -1,15 +1,22 @@
 """Database client for connecting to and managing database connections."""
 
+import logging
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Generator, List, Optional, Type, Union
 
-from sqlalchemy import CursorResult, Inspector, MetaData, Table, inspect, text
+from rich.table import Table
+from sqlalchemy import CursorResult, Inspector, MetaData
+from sqlalchemy import Table as SQLTable
+from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from prism.core.logging import *
+from prism.ui import console
+
+# For internal logging, not user-facing output
+log = logging.getLogger(__name__)
 
 
 class DbType(str, Enum):
@@ -48,7 +55,7 @@ class DbConfig:
     user: Optional[str] = None
     password: Optional[str] = None
     host: Optional[str] = None
-    database: str = None
+    database: str = ""
     port: Optional[int] = None
     echo: bool = False
     pool_config: PoolConfig = field(default_factory=PoolConfig)
@@ -71,15 +78,13 @@ class DbConfig:
             return f"sqlite:///{self.database}"
 
         if self.db_type in (DbType.POSTGRESQL, DbType.MYSQL, DbType.MSSQL):
-            if not all([self.user, self.password, self.host]):
+            if not all([self.user, self.password, self.host, self.database]):
                 raise ValueError(f"Incomplete configuration for {self.db_type}")
 
             dialect = self.db_type.value
             driver = self._get_driver()
-
             port_str = f":{self.port}" if self.port is not None else ""
             ssl_str = f"?sslmode={self.ssl_mode}" if self.ssl_mode else ""
-
             return f"{dialect}{driver}://{self.user}:{self.password}@{self.host}{port_str}/{self.database}{ssl_str}"
 
         raise ValueError(f"Unsupported database type: {self.db_type}")
@@ -116,9 +121,7 @@ class DbClient:
 
     def _create_engine(self) -> Engine:
         """Create SQLAlchemy engine with connection pooling."""
-        pool_kwargs = (
-            self.config.pool_config.__dict__ if self.config.pool_config else {}
-        )
+        pool_kwargs = self.config.pool_config.__dict__
         return create_engine(self.config.url, echo=self.config.echo, **pool_kwargs)
 
     def _create_base(self) -> Type[DeclarativeBase]:
@@ -132,33 +135,28 @@ class DbClient:
     def _load_metadata(self) -> None:
         """Load database metadata with schema filtering."""
         inspector: Inspector = inspect(self.engine)
-
         for schema in sorted(
             set(inspector.get_schema_names()) - set(self.config.schema_exclude)
         ):
-            [
-                Table(t, self.metadata, autoload_with=self.engine, schema=schema)
-                for t in inspector.get_table_names(schema=schema)
-            ]
-            [
-                Table(v, self.metadata, autoload_with=self.engine, schema=schema)
-                for v in inspector.get_view_names(schema=schema)
-            ]
+            for t in inspector.get_table_names(schema=schema):
+                SQLTable(t, self.metadata, autoload_with=self.engine, schema=schema)
+            for v in inspector.get_view_names(schema=schema):
+                SQLTable(v, self.metadata, autoload_with=self.engine, schema=schema)
 
     def test_connection(self) -> None:
         """Test database connection and log connection info."""
         try:
-            user, database = self.exec_raw_sql(
-                "SELECT current_user, current_database()"
-            ).fetchone()
-            # todo: Check on a best way to log the connection info!
-            # log.info(
-            #     f"Connected to {info_style(database)} database as {success_style(user)}"
-            # )
-            # log.info(f"Connected to database as {color_palette['schema'](user)}")
-            return (user, database)
+            with self.engine.connect() as connection:
+                result = connection.execute(
+                    text("SELECT current_user, current_database()")
+                ).fetchone()
+                if result:
+                    user, database = result
+                    console.print(
+                        f"Connection successful to [bold blue]{database}[/] as [bold green]{user}[/]"
+                    )
         except Exception as e:
-            log.error(f"Database connection test failed: {str(e)}")
+            console.print(f"[bold red]Database connection test failed:[/] {e}")
             raise
 
     @contextmanager
@@ -199,11 +197,10 @@ class DbClient:
                     query = "SELECT @@VERSION"
                 case _:
                     return "Unknown database type"
-
             version_info = str(self.exec_raw_sql(query).scalar())
-            return version_info.split("\n")[0]  # First line only
+            return version_info.split("\n")[0]
         except Exception as e:
-            log.error(f"Failed to get database version: {str(e)}")
+            console.print(f"[red]Failed to get database version:[/] {e}")
             return "Unknown"
 
     def analyze_table_relationships(self) -> Dict[str, List[Dict[str, str]]]:
@@ -222,22 +219,26 @@ class DbClient:
         return relationships
 
     def log_metadata_stats(self):
-        """Log database connection metadata and statistics."""
-        user, database = self.exec_raw_sql(
-            "SELECT current_user, current_database()"
-        ).fetchone()
+        """Log database connection metadata and statistics using a rich Table."""
+        result = self.exec_raw_sql("SELECT current_user, current_database()").fetchone()
+        if not result:
+            console.print("[red]Could not retrieve user and database for stats.[/]")
+            return
+
+        user, database = result
         db_version = self.get_db_version()
 
-        connection_info = [
-            ("Version:", db_version, bold),
-            ("Type:", self.config.db_type.name, green),
-            ("Driver:", self.config.driver_type.name, green),
-            ("DB:", database, info_style),
-            ("Host:", f"{self.config.host}:{self.config.port}", info_style),
-        ]
+        table = Table(
+            title="[bold]Database Connection Info[/bold]", show_header=False, box=None
+        )
+        table.add_column("Label", style="dim")
+        table.add_column("Value")
 
-        [
-            print(f"\t{dim(italic(f'{label:<12}'))} {formatter(value)}")
-            for label, value, formatter in connection_info
-        ]
-        print()
+        table.add_row("Version", f"[white]{db_version}[/]")
+        table.add_row("Type", f"[green]{self.config.db_type.name}[/]")
+        table.add_row("Driver", f"[green]{self.config.driver_type.name}[/]")
+        table.add_row("Database", f"[blue]{database}[/]")
+        table.add_row("User", f"[green]{user}[/]")
+        table.add_row("Host", f"[blue]{self.config.host}:{self.config.port}[/]")
+
+        console.print(table)

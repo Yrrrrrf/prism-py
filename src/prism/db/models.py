@@ -1,13 +1,16 @@
 # src/prism/db/models.py
 """Database model management and metadata loading."""
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum as PyEnum
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel, Field, create_model
+from rich.table import Table
 from sqlalchemy import Enum as SQLAlchemyEnum
-from sqlalchemy import Table, inspect, text
+from sqlalchemy import Table as SQLTable
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import DeclarativeBase, declared_attr
 
 from prism.common.types import (
@@ -21,8 +24,11 @@ from prism.common.types import (
     PrismBaseModel,
     get_eq_type,
 )
-from prism.core.logging import bold, color_palette, log
 from prism.db.client import DbClient
+from prism.ui import console
+
+# For internal logging, not user-facing output
+log = logging.getLogger(__name__)
 
 
 class BaseSQLModel(DeclarativeBase):
@@ -48,10 +54,10 @@ class ModelManager:
     exclude_tables: List[str] = field(default_factory=list)
 
     # Cache dictionaries for database objects
-    table_cache: Dict[str, Tuple[Table, Tuple[Type[BaseModel], Type[Any]]]] = field(
+    table_cache: Dict[str, Tuple[SQLTable, Tuple[Type[BaseModel], Type[Any]]]] = field(
         default_factory=dict
     )
-    view_cache: Dict[str, Tuple[Table, Tuple[Type[BaseModel], Type[BaseModel]]]] = (
+    view_cache: Dict[str, Tuple[SQLTable, Tuple[Type[BaseModel], Type[BaseModel]]]] = (
         field(default_factory=dict)
     )
     enum_cache: Dict[str, EnumInfo] = field(default_factory=dict)
@@ -61,29 +67,26 @@ class ModelManager:
 
     def __post_init__(self):
         """Initialize by loading all models."""
-        self._load_models()
-        self._load_enums()
-        self._load_views()
-        self._load_functions()
+        with console.status("[bold green]Analyzing database schema..."):
+            self._load_models()
+            self._load_enums()
+            self._load_views()
+            self._load_functions()
 
     def _load_models(self):
         """Load database tables into models."""
-
         metadata = self.db_client.metadata
         engine = self.db_client.engine
 
         for schema in self.include_schemas:
-            log.info(f"Processing schema: {color_palette['schema'](schema)}")
+            console.print(f"[dim]Processing schema: [cyan]{schema}[/][/dim]")
 
             for table in metadata.tables.values():
                 if (
                     table.name in inspect(engine).get_table_names(schema=schema)
                     and table.name not in self.exclude_tables
                 ):
-                    # Try to get sample data for improved type inference
                     sample_data = self._get_sample_data(schema, table.name)
-
-                    # Create Pydantic model fields
                     fields = {}
                     for column in table.columns:
                         field_type = get_eq_type(
@@ -91,8 +94,6 @@ class ModelManager:
                             sample_data.get(column.name) if sample_data else None,
                             nullable=column.nullable,
                         )
-
-                        # Handle different field types
                         if isinstance(field_type, JSONBType):
                             model = field_type.get_model(f"{table.name}_{column.name}")
                             if (
@@ -133,12 +134,9 @@ class ModelManager:
                                 else Optional[field_type],
                                 Field(default=... if not column.nullable else None),
                             )
-
                     pydantic_model = create_model(
                         f"Pydantic_{table.name}", __base__=PrismBaseModel, **fields
                     )
-
-                    # Create SQLAlchemy model with proper metadata binding
                     sqlalchemy_model = type(
                         f"SQLAlchemy_{table.name}",
                         (BaseSQLModel,),
@@ -152,15 +150,14 @@ class ModelManager:
                             },
                         },
                     )
-
-                    # Store in cache
                     key = f"{schema}.{table.name}"
                     self.table_cache[key] = (table, (pydantic_model, sqlalchemy_model))
-                    log.trace(
-                        f"Loaded table: {color_palette['schema'](schema)}.{color_palette['table'](table.name)}"
+                    console.print(
+                        f"[dim]  Loaded table: [cyan]{schema}[/].[blue]{table.name}[/][/dim]"
                     )
-
-        log.debug(f"Loaded {color_palette['table'](str(len(self.table_cache)))} tables")
+        console.print(
+            f"[dim]Loaded [bold blue]{len(self.table_cache)}[/] tables.[/dim]"
+        )
 
     def _load_enums(self):
         """Load database enums."""
@@ -183,56 +180,35 @@ class ModelManager:
                                     ),
                                     schema=schema,
                                 )
-                                log.trace(
-                                    f"Loaded enum: {color_palette['enum'](schema)}.{color_palette['enum'](enum_name)}"
+                                console.print(
+                                    f"[dim]  Loaded enum: [cyan]{schema}[/].[magenta]{enum_name}[/][/dim]"
                                 )
-
-        log.debug(f"Loaded {color_palette['enum'](str(len(self.enum_cache)))} enums")
+        console.print(
+            f"[dim]Loaded [bold magenta]{len(self.enum_cache)}[/] enums.[/dim]"
+        )
 
     def _load_views(self):
         """Load database views."""
         metadata = self.db_client.metadata
         engine = self.db_client.engine
-
         for schema in self.include_schemas:
             for table in metadata.tables.values():
                 if table.name in inspect(engine).get_view_names(schema=schema):
-                    # Try to get sample data for improved type inference
                     sample_data = self._get_sample_data(schema, table.name)
-
-                    # Create query params and response fields
-                    query_fields = {}
-                    response_fields = {}
-
+                    query_fields, response_fields = {}, {}
                     for column in table.columns:
-                        column_type = str(column.type)
-                        nullable = column.nullable
                         field_type = get_eq_type(
-                            column_type,
+                            str(column.type),
                             sample_data.get(column.name) if sample_data else None,
-                            nullable=nullable,
+                            nullable=column.nullable,
                         )
-
-                        # Create query field (always optional)
                         query_fields[column.name] = (Optional[str], Field(default=None))
-
-                        # Create response field based on type
                         if isinstance(field_type, JSONBType):
                             model = field_type.get_model(f"{table.name}_{column.name}")
-                            if (
-                                sample_data
-                                and column.name in sample_data
-                                and isinstance(sample_data[column.name], list)
-                            ):
-                                response_fields[column.name] = (
-                                    List[model],
-                                    Field(default_factory=list),
-                                )
-                            else:
-                                response_fields[column.name] = (
-                                    Optional[model] if nullable else model,
-                                    Field(default=None),
-                                )
+                            response_fields[column.name] = (
+                                Optional[model] if column.nullable else model,
+                                Field(default=None),
+                            )
                         elif isinstance(field_type, ArrayType):
                             response_fields[column.name] = (
                                 List[field_type.item_type],
@@ -247,26 +223,20 @@ class ModelManager:
                                 field_type,
                                 Field(default=None),
                             )
-
-                    # Create models
                     QueryModel = create_model(
                         f"View_{table.name}_QueryParams",
                         __base__=PrismBaseModel,
                         **query_fields,
                     )
-
                     ResponseModel = create_model(
                         f"View_{table.name}", __base__=PrismBaseModel, **response_fields
                     )
-
-                    # Store in cache
                     key = f"{schema}.{table.name}"
                     self.view_cache[key] = (table, (QueryModel, ResponseModel))
-                    log.trace(
-                        f"Loaded view: {color_palette['schema'](schema)}.{color_palette['view'](table.name)}"
+                    console.print(
+                        f"[dim]  Loaded view: [cyan]{schema}[/].[green]{table.name}[/][/dim]"
                     )
-
-        log.debug(f"Loaded {color_palette['view'](str(len(self.view_cache)))} views")
+        console.print(f"[dim]Loaded [bold green]{len(self.view_cache)}[/] views.[/dim]")
 
     def _get_sample_data(
         self, schema: str, table_name: str
@@ -277,35 +247,34 @@ class ModelManager:
                 query = f"SELECT * FROM {schema}.{table_name} LIMIT 1"
                 result = db.execute(text(query)).first()
                 if result:
-                    return {key: value for key, value in result._mapping.items()}
+                    return dict(result._mapping)
         except Exception as e:
-            log.debug(f"Could not get sample data for {schema}.{table_name}: {str(e)}")
+            log.debug(f"Could not get sample data for {schema}.{table_name}: {e}")
         return None
 
     def _load_functions(self):
         """Load database functions, procedures, and triggers."""
         fn_cache, proc_cache, trig_cache = self._discover_functions()
-
-        self.fn_cache = fn_cache
-        self.proc_cache = proc_cache
-        self.trig_cache = trig_cache
-
-        log.debug(
-            f"Loaded {color_palette['function'](str(len(self.fn_cache)))} functions, "
-            f"{color_palette['procedure'](str(len(self.proc_cache)))} procedures, "
-            f"{color_palette['trigger'](str(len(self.trig_cache)))} triggers"
+        self.fn_cache, self.proc_cache, self.trig_cache = (
+            fn_cache,
+            proc_cache,
+            trig_cache,
+        )
+        console.print(
+            f"[dim]Loaded [bold red]{len(fn_cache)}[/] functions, "
+            f"[bold yellow]{len(proc_cache)}[/] procedures, "
+            f"and [bold red]{len(trig_cache)}[/] triggers.[/dim]"
         )
 
     def _discover_functions(self):
         """Discover database functions, procedures, and triggers."""
-        function_cache = {}
-        procedure_cache = {}
-        trigger_cache = {}
+        function_cache, procedure_cache, trigger_cache = {}, {}, {}
 
-        # SQL query to get function information
+        # --- THIS IS THE FIX ---
+        # Replace the placeholder with the actual SQL query.
         query = """
             WITH function_info AS (
-                SELECT 
+                SELECT
                     n.nspname as schema,
                     p.proname as name,
                     pg_get_function_identity_arguments(p.oid) as arguments,
@@ -316,77 +285,27 @@ class ModelManager:
                     d.description,
                     p.proretset as returns_set,
                     p.prokind as kind,
-                    CASE 
-                        WHEN EXISTS (
-                            SELECT 1 
-                            FROM pg_trigger t 
-                            WHERE t.tgfoid = p.oid
-                        ) OR p.prorettype = 'trigger'::regtype::oid THEN 'trigger'
+                    CASE
+                        WHEN p.prorettype = 'trigger'::regtype::oid THEN 'trigger'
                         WHEN p.prokind = 'p' THEN 'procedure'
                         ELSE 'function'
-                    END as object_type,
-                    -- Get trigger event information if it's a trigger function
-                    CASE 
-                        WHEN EXISTS (
-                            SELECT 1 
-                            FROM pg_trigger t 
-                            WHERE t.tgfoid = p.oid
-                        ) THEN (
-                            SELECT string_agg(DISTINCT evt.event_type, ', ')
-                            FROM (
-                                SELECT 
-                                    CASE tg.tgtype::integer & 2::integer 
-                                        WHEN 2 THEN 'BEFORE'
-                                        ELSE 'AFTER'
-                                    END || ' ' ||
-                                    CASE 
-                                        WHEN tg.tgtype::integer & 4::integer = 4 THEN 'INSERT'
-                                        WHEN tg.tgtype::integer & 8::integer = 8 THEN 'DELETE'
-                                        WHEN tg.tgtype::integer & 16::integer = 16 THEN 'UPDATE'
-                                        WHEN tg.tgtype::integer & 32::integer = 32 THEN 'TRUNCATE'
-                                    END as event_type
-                                FROM pg_trigger tg
-                                WHERE tg.tgfoid = p.oid
-                            ) evt
-                        )
-                        ELSE NULL
-                    END as trigger_events
+                    END as object_type
                 FROM pg_proc p
                 JOIN pg_namespace n ON p.pronamespace = n.oid
                 LEFT JOIN pg_description d ON p.oid = d.objoid
-                LEFT JOIN pg_depend dep ON dep.objid = p.oid 
-                    AND dep.deptype = 'e'
-                LEFT JOIN pg_extension ext ON dep.refobjid = ext.oid
-                WHERE ext.extname IS NULL
-                    AND n.nspname = ANY(:schemas)
-                    AND p.proname NOT LIKE 'pg_%'
-                    AND p.oid > (
-                        SELECT oid 
-                        FROM pg_proc 
-                        WHERE proname = 'current_database' 
-                        LIMIT 1
-                    )
-                    AND NOT EXISTS (
-                        SELECT 1 
-                        FROM pg_depend d2
-                        JOIN pg_extension e2 ON d2.refobjid = e2.oid
-                        WHERE d2.objid = p.oid
-                    )
-                    AND p.pronamespace > (
-                        SELECT oid 
-                        FROM pg_namespace 
-                        WHERE nspname = 'pg_catalog'
-                    )
+                WHERE n.nspname = ANY(:schemas)
+                  AND p.prokind IN ('f', 'p', 'a', 'w') -- f: normal, p: procedure, a: aggregate, w: window
+                  AND NOT EXISTS (
+                      -- Exclude functions that are part of an extension
+                      SELECT 1
+                      FROM pg_depend dep
+                      JOIN pg_extension ext ON dep.refobjid = ext.oid
+                      WHERE dep.objid = p.oid
+                  )
             )
             SELECT * FROM function_info
             ORDER BY schema, name;
         """
-
-        # Helper functions for processing function metadata
-        def get_volatility(volatility_char: str) -> str:
-            return {"i": "IMMUTABLE", "s": "STABLE", "v": "VOLATILE"}.get(
-                volatility_char, "VOLATILE"
-            )
 
         def determine_function_type(row: Any) -> FunctionType:
             if row.returns_set:
@@ -402,173 +321,113 @@ class ModelManager:
         def parse_parameters(args_str: str) -> List[FunctionParameter]:
             if not args_str:
                 return []
-
             parameters = []
             for arg in args_str.split(", "):
                 parts = arg.split()
+                if not parts:
+                    continue
 
-                # Handle different parameter formats
-                if parts and parts[0].upper() in ("IN", "OUT", "INOUT", "VARIADIC"):
-                    # Procedure format: "IN param_name param_type"
-                    mode = parts[0].upper()
-                    param_name = parts[1] if len(parts) > 1 else ""
-                    param_type = " ".join(parts[2:]) if len(parts) > 2 else ""
-                else:
-                    # Function format: "param_name param_type"
-                    mode = "IN"  # Default mode
-                    param_name = parts[0] if parts else ""
-                    param_type = " ".join(parts[1:]) if len(parts) > 1 else ""
+                # Default mode is IN if not specified
+                mode = "IN"
+                if parts[0].upper() in ("IN", "OUT", "INOUT", "VARIADIC"):
+                    mode = parts.pop(0).upper()
+
+                # The last part is the type, the rest is the name (handling names with spaces if quoted)
+                param_type = parts.pop(-1)
+                param_name = " ".join(parts) if parts else ""
 
                 parameters.append(
                     FunctionParameter(name=param_name, type=param_type, mode=mode)
                 )
-
             return parameters
 
-        # Execute query
         with next(self.db_client.get_db()) as db:
             result = db.execute(text(query), {"schemas": self.include_schemas})
-
             for row in result:
-                fn_type = determine_function_type(row)
-                parameters = parse_parameters(row.arguments)
-
                 metadata = FunctionMetadata(
                     schema=row.schema,
                     name=row.name,
-                    return_type=row.return_type if row.return_type else "void",
-                    parameters=parameters,
-                    type=fn_type,
+                    return_type=row.return_type or "void",
+                    parameters=parse_parameters(row.arguments),
+                    type=determine_function_type(row),
                     object_type=ObjectType(row.object_type),
                     is_strict=row.is_strict,
                     description=row.description,
                 )
-
                 component = f"{row.schema}.{row.name}"
+                color_map = {
+                    "function": "red",
+                    "procedure": "yellow",
+                    "trigger": "bold red",
+                }
+                color = color_map.get(row.object_type, "white")
 
-                match row.object_type:
-                    case "function":
-                        function_cache[component] = metadata
-                    case "procedure":
-                        procedure_cache[component] = metadata
-                    case "trigger":
-                        trigger_cache[component] = metadata
-                    case _:
-                        raise ValueError(f"Unknown object type: {row.object_type}")
+                if row.object_type == "function":
+                    function_cache[component] = metadata
+                elif row.object_type == "procedure":
+                    procedure_cache[component] = metadata
+                elif row.object_type == "trigger":
+                    trigger_cache[component] = metadata
 
-                log.trace(
-                    f"Loaded {row.object_type}: {color_palette['schema'](row.schema)}.{color_palette[row.object_type](row.name)}"
+                console.print(
+                    f"[dim]  Loaded {row.object_type}: [cyan]{row.schema}[/].[{color}]{row.name}[/][/dim]"
                 )
-
         return function_cache, procedure_cache, trigger_cache
 
     def log_metadata_stats(self):
-        """Print metadata statistics in a table format."""
+        """Print metadata statistics in a rich table format."""
         stats = {}
-
         for schema in sorted(self.include_schemas):
-            # Count objects by schema
-            tables = len(
-                [
-                    t
-                    for t_key, t in self.table_cache.items()
-                    if t_key.split(".")[0] == schema
-                ]
-            )
-            views = len(
-                [
-                    v
-                    for v_key, v in self.view_cache.items()
-                    if v_key.split(".")[0] == schema
-                ]
-            )
-            enums = len(
-                [e for e_key, e in self.enum_cache.items() if e.schema == schema]
-            )
-            functions = len(
-                [f for f_key, f in self.fn_cache.items() if f.schema == schema]
-            )
-            procedures = len(
-                [p for p_key, p in self.proc_cache.items() if p.schema == schema]
-            )
-            triggers = len(
-                [t for t_key, t in self.trig_cache.items() if t.schema == schema]
-            )
-
-            # Store counts
             stats[schema] = {
-                "tables": tables,
-                "views": views,
-                "enums": enums,
-                "functions": functions,
-                "procedures": procedures,
-                "triggers": triggers,
+                "tables": sum(
+                    1 for k in self.table_cache if k.startswith(schema + ".")
+                ),
+                "views": sum(1 for k in self.view_cache if k.startswith(schema + ".")),
+                "enums": sum(1 for e in self.enum_cache.values() if e.schema == schema),
+                "functions": sum(
+                    1 for f in self.fn_cache.values() if f.schema == schema
+                ),
+                "procedures": sum(
+                    1 for p in self.proc_cache.values() if p.schema == schema
+                ),
+                "triggers": sum(
+                    1 for t in self.trig_cache.values() if t.schema == schema
+                ),
             }
 
-        # Build table data for display
-        headers = [
-            "Schema",
-            "Tables",
-            "Views",
-            "Enums",
-            "Fn's",
-            "Proc's",
-            "Trig's",
-            "Total",
-        ]
-        rows = []
+        console.rule("[bold]ModelManager Statistics")
+        table = Table(header_style="bold magenta", show_footer=True)
+        table.add_column("Schema", style="cyan", no_wrap=True, footer="[bold]TOTAL[/]")
+        table.add_column("Tables", style="blue", justify="right")
+        table.add_column("Views", style="green", justify="right")
+        table.add_column("Enums", style="magenta", justify="right")
+        table.add_column("Functions", style="red", justify="right")
+        table.add_column("Procedures", style="yellow", justify="right")
+        table.add_column("Triggers", style="bold red", justify="right")
+        table.add_column("Total", justify="right", style="bold")
 
-        # Initialize totals
-        totals = {
-            key: 0
-            for key in [
-                "tables",
-                "views",
-                "enums",
-                "functions",
-                "procedures",
-                "triggers",
-            ]
-        }
-
-        # Add rows for each schema
+        totals = {key: 0 for key in stats.get(self.include_schemas[0], {}).keys()}
         for schema, counts in stats.items():
-            # Calculate schema total
             schema_total = sum(counts.values())
-
-            # Format row with appropriate colors
-            row = [
-                color_palette["schema"](schema),
-                color_palette["table"](str(counts["tables"])),
-                color_palette["view"](str(counts["views"])),
-                color_palette["enum"](str(counts["enums"])),
-                color_palette["function"](str(counts["functions"])),
-                color_palette["procedure"](str(counts["procedures"])),
-                color_palette["trigger"](str(counts["triggers"])),
-                schema_total,
-            ]
-            rows.append(row)
-
-            # Update totals
+            table.add_row(
+                schema,
+                str(counts["tables"]),
+                str(counts["views"]),
+                str(counts["enums"]),
+                str(counts["functions"]),
+                str(counts["procedures"]),
+                str(counts["triggers"]),
+                str(schema_total),
+            )
             for key in totals:
-                totals[key] += counts[key]
+                totals[key] += counts.get(key, 0)
 
-        # Calculate grand total
-        grand_total = sum(totals.values())
+        table.columns[1].footer = f"[blue]{totals['tables']}[/]"
+        table.columns[2].footer = f"[green]{totals['views']}[/]"
+        table.columns[3].footer = f"[magenta]{totals['enums']}[/]"
+        table.columns[4].footer = f"[red]{totals['functions']}[/]"
+        table.columns[5].footer = f"[yellow]{totals['procedures']}[/]"
+        table.columns[6].footer = f"[bold red]{totals['triggers']}[/]"
+        table.columns[7].footer = f"[bold]{sum(totals.values())}[/]"
 
-        # Add totals row with all columns matching header length
-        totals_row = [
-            bold("TOTAL"),  # First column should be the "Schema" equivalent for totals
-            color_palette["table"](str(totals["tables"])),
-            color_palette["view"](str(totals["views"])),
-            color_palette["enum"](str(totals["enums"])),
-            color_palette["function"](str(totals["functions"])),
-            color_palette["procedure"](str(totals["procedures"])),
-            color_palette["trigger"](str(totals["triggers"])),
-            bold(str(grand_total)),
-        ]
-        rows.append(totals_row)
-
-        # Print table
-        log.section("ModelManager Statistics")
-        log.table(headers, rows)
+        console.print(table)

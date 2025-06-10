@@ -2,9 +2,8 @@ import os
 
 from fastapi import FastAPI
 from prism import *
-from prism.core.logging import LogLevel, log
 
-log.set_level(LogLevel.TRACE)  # Show debug messages and above
+# log.set_level(LogLevel.TRACE)  # Show debug messages and above
 
 
 app = FastAPI()

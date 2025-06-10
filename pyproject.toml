@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "prism-py"
-version = "0.0.4"
+version = "0.0.5"
 description = "Automatic API generator that creates a REST API mirror of a database"
 readme = "README.md"
 keywords = ["api", "rest", "database", "fastapi", "sqlalchemy"]
@@ -19,29 +19,30 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Database",
+    "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
+    "Topic :: Software Development :: Code Generators",
+    "Typing :: Typed",
 ]
 dependencies = [
     "fastapi>=0.115.11",
     "sqlalchemy>=2.0.39",
     "psycopg2>=2.9.10",
     "pydantic>=2.10.6",
+    "rich>=14.0.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/Yrrrrrf/prism-py"
 Repository = "https://github.com/Yrrrrrf/prism-py"
 Download = "https://github.com/Yrrrrrf/prism-py/releases"
+
 # todo: Add funding!
 # Funding = "https://..."
 
 # [project.optional-dependencies]
 # dev = [
 #     # "pytest>=8.3.4",
-#     "mypy>=1.15.0",  # static type checker (mypy --strict, useful for catching bugs)
-#     # use: uvx ruff check --select <F> --fix .
-#         # I: import order
-#         # F401: unused import
-#     # uvx ruff check --fix .
 # ]
 
 [tool.hatch.build.targets.wheel]

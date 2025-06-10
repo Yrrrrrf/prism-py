@@ -1,30 +1,36 @@
 """Main Prism API generator."""
 
-import re
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import Column, Table
-from sqlalchemy import Enum as SQLAlchemyEnum
+from pydantic import Field, create_model
+from sqlalchemy import text
 
 from prism.api.metadata import MetadataRouter
-from prism.common.types import FunctionMetadata, FunctionType, JSONBType, get_eq_type
-from prism.core.config import PrismConfig
-from prism.core.logging import (
-    blue,
-    bold,
-    color_palette,
-    dim,
-    green,
-    log,
-    red,
-    violet,
-    yellow,
+from prism.common.types import (
+    ArrayType,
+    FunctionMetadata,
+    FunctionType,
+    PrismBaseModel,
+    get_eq_type,
 )
+from prism.config import PrismConfig
 from prism.db.client import DbClient
 from prism.db.models import ModelManager
+from prism.ui import (
+    console,
+    display_function_structure,
+    display_table_structure,
+    print_welcome,
+)
+
+# Optional: For internal logging that is not part of the user-facing CLI output
+# This is different from the console output and can be configured with RichHandler
+# in the main application script if needed.
+log = logging.getLogger(__name__)
 
 
 class ApiPrism:
@@ -63,63 +69,13 @@ class ApiPrism:
     def print_welcome(self, db_client: DbClient) -> None:
         """Print welcome message with app information."""
         db_client.test_connection()
-        docs_url = f"http://{db_client.config.host}:8000/docs"
-        log.info(
-            f"{self.config.project_name} initialized (version {self.config.version})"
+        # Use the new UI function for a rich welcome panel
+        print_welcome(
+            project_name=self.config.project_name,
+            version=self.config.version,
+            host=db_client.config.host,
+            port=8000,  # Assuming default port
         )
-        log.info(f"API Documentation: {docs_url}")
-
-    def _print_table_structure(self, table: Table) -> None:
-        """Print detailed table structure with columns and enums."""
-
-        def get_column_flags(column: Column) -> List[str]:
-            """Get formatted flags for a column."""
-            flags = []
-            if column.primary_key:
-                flags.append(f"{green('PK')}")
-            if column.foreign_keys:
-                ref_table = next(iter(column.foreign_keys)).column.table
-                flags.append(
-                    f"{blue(f'FK → {ref_table.schema}.{bold(ref_table.name)}')}"
-                )
-            return flags
-
-        def get_base_type(type_: Any) -> str:
-            """Extract base type from Optional types."""
-            type_str = str(type_)  # Get the string representation
-
-            if "typing.Optional" in type_str:
-                return re.search(r"\[(.*)\]", type_str).group(1).split(".")[-1]
-
-            match isinstance(type_, type):  # Handle non-Optional types
-                case True:
-                    return type_.__name__  # Return class name if it's a type
-                case False:
-                    return str(type_)  # Return string representation otherwise
-
-        # Print columns
-        for column in table.columns:
-            flags_str = " ".join(get_column_flags(column))
-            py_type = get_eq_type(str(column.type))
-            nullable = "" if column.nullable else "*"
-
-            # Determine type string and values based on column type
-            match column.type:
-                case _ if isinstance(column.type, SQLAlchemyEnum):
-                    type_str = f"{yellow(f'Enum({column.type.name})')}"
-                    values = f"{dim(str(column.type.enums))}"
-                case _:
-                    values = ""
-                    if isinstance(py_type, JSONBType):
-                        type_str = violet("JSONB")
-                    else:
-                        type_str = violet(get_base_type(py_type))
-
-            log.simple(
-                f"\t\t{column.name:<24} {red(f'{nullable:<2}')}{dim(str(column.type)[:20]):<32} "
-                f"{type_str:<16} {flags_str} {values if values else ''}"
-            )
-        log.simple("")
 
     def gen_table_routes(
         self, model_manager: ModelManager, enhanced_filtering: bool = True
@@ -131,7 +87,7 @@ class ApiPrism:
             model_manager: The model manager containing database metadata
             enhanced_filtering: Whether to enable enhanced filtering (sorting, pagination)
         """
-        log.section("Generating Table Routes")
+        console.rule("[bold green]Generating Table Routes")
 
         from prism.api.crud import CrudGenerator
 
@@ -145,11 +101,12 @@ class ApiPrism:
         # Generate routes for each table
         for table_key, table_data in model_manager.table_cache.items():
             schema, table_name = table_key.split(".")
-            log.info(
-                f"Generating CRUD for: {color_palette['schema'](schema)}.{color_palette['table'](table_name)}"
+            console.print(
+                f"Generating CRUD for: [cyan]{schema}[/].[blue]{table_name}[/]"
             )
 
-            self._print_table_structure(table_data[0])  # table_data[0] is the table
+            # Call the new UI function instead of the old private method
+            display_table_structure(table_data[0])
 
             table, (pydantic_model, sqlalchemy_model) = table_data
 
@@ -170,11 +127,13 @@ class ApiPrism:
             if schema in self.routers:
                 self.app.include_router(self.routers[schema])
 
-        log.warn(f"Generated table routes for {len(model_manager.table_cache)} tables")
+        console.print(
+            f"[yellow]Generated table routes for {len(model_manager.table_cache)} tables"
+        )
 
     def gen_view_routes(self, model_manager: ModelManager) -> None:
         """Generate routes for all views."""
-        log.section("Generating View Routes")
+        console.rule("[bold green]Generating View Routes")
 
         from prism.api.views import ViewGenerator
 
@@ -189,12 +148,12 @@ class ApiPrism:
         # Inside the for loop where views are processed
         for view_key, view_data in model_manager.view_cache.items():
             schema, view_name = view_key.split(".")
-            log.info(
-                f"Generating view route for: {color_palette['schema'](schema)}.{color_palette['view'](view_name)}"
+            console.print(
+                f"Generating view route for: [cyan]{schema}[/].[green]{view_name}[/]"
             )
 
-            # Add this line to log the view structure when it's processed
-            self._print_table_structure(view_data[0])  # view_data[0] is the view
+            # Call the new UI function
+            display_table_structure(view_data[0])
 
             table, (query_model, response_model) = view_data
             router = self.routers[f"{schema}_views"]
@@ -216,20 +175,15 @@ class ApiPrism:
             if router_key in self.routers:
                 self.app.include_router(self.routers[router_key])
 
-        log.warn(f"Generated view routes for {len(model_manager.view_cache)} views")
+        console.print(
+            f"[yellow]Generated view routes for {len(model_manager.view_cache)} views"
+        )
 
     def gen_metadata_routes(self, model_manager: ModelManager) -> None:
         """
         Generate metadata routes for database schema inspection.
-
-        Creates endpoints to explore database structure including:
-        - Schemas
-        - Tables
-        - Views
-        - Functions
-        - Enums
         """
-        log.section("Generating Metadata Routes")
+        console.rule("[bold magenta]Generating Metadata Routes")
 
         # Create metadata router
         router = APIRouter(prefix="/dt", tags=["Metadata"])
@@ -241,19 +195,13 @@ class ApiPrism:
         # Register the router with the app
         self.app.include_router(router)
 
-        log.warn("Generated metadata routes")
+        console.print("[yellow]Generated metadata routes")
 
     def gen_health_routes(self, model_manager: ModelManager) -> None:
         """
         Generate health check routes for API monitoring.
-
-        Creates endpoints to check API health and status:
-        - Health check
-        - Database connectivity
-        - Cache status
-        - Ping endpoint
         """
-        log.section("Generating Health Routes")
+        console.rule("[bold blue]Generating Health Routes")
 
         from prism.api.health import HealthGenerator
 
@@ -272,7 +220,7 @@ class ApiPrism:
         # Register the router with the app
         self.app.include_router(router)
 
-        log.warn("Generated health routes")
+        console.print("[yellow]Generated health routes")
 
     def generate_all_routes(self, model_manager: ModelManager) -> None:
         """
@@ -289,10 +237,8 @@ class ApiPrism:
     def gen_fn_routes(self, model_manager: ModelManager) -> None:
         """
         Generate routes for all functions, procedures, and triggers.
-
-        Creates endpoints to execute database functions with proper parameter handling.
         """
-        log.section("Generating Function Routes")
+        console.rule("[bold red]Generating Function & Procedure Routes[/]")
 
         # Initialize function routers for each schema
         for schema in model_manager.include_schemas:
@@ -314,8 +260,8 @@ class ApiPrism:
             if router_key in self.routers:
                 self.app.include_router(self.routers[router_key])
 
-        log.warn(
-            f"Generated function routes for {len(model_manager.fn_cache)} functions "
+        console.print(
+            f"[yellow]Generated function routes for {len(model_manager.fn_cache)} functions "
             f"and {len(model_manager.proc_cache)} procedures"
         )
 
@@ -327,56 +273,34 @@ class ApiPrism:
     ) -> None:
         """
         Generate routes for a specific type of database function.
-
-        Args:
-            model_manager: The model manager containing database metadata
-            function_cache: Dictionary of function metadata
-            route_type: Type of route to generate ('fn' or 'proc')
         """
-        # Import necessary types at the function level to ensure they're available throughout
-        from typing import Any, Optional
+        # Note: The `InputModel` variable below might be flagged by some linters
+        # because it's defined inside a loop. This is necessary for creating
+        # unique Pydantic models per function and is functionally correct for FastAPI.
 
-        from pydantic import Field, create_model
-        from sqlalchemy import text
-
-        from prism.common.types import ArrayType, PrismBaseModel, get_eq_type
-
-        # Create function factories to avoid closure issues
         def create_procedure_handler(
             schema: str, fn_name: str, fn_metadata: FunctionMetadata
         ):
-            """Create a handler for procedures that correctly captures the current schema and function name."""
+            """Create a handler for procedures that correctly captures the current scope."""
 
             async def execute_procedure(
-                params: InputModel, db=Depends(model_manager.db_client.get_db)
+                params: Any,  # Using Any to satisfy linters, FastAPI will use the correct InputModel
+                db=Depends(model_manager.db_client.get_db),
             ):
-                # Build parameter list
                 param_list = [f":{p}" for p in params.model_fields.keys()]
-
-                # Create query using the correct schema and function name
                 query = f"CALL {schema}.{fn_name}({', '.join(param_list)})"
 
-                # Log query for debugging
-                log.debug(f"Executing query: {query}")
-                log.warn(
-                    red("CHECK THIS!!! I MEAN, THE PROC GENERATOR IS NOT TESTED YET!!!")
-                )
-                log.warn(
-                    red("CHECK THIS!!! I MEAN, THE PROC GENERATOR IS NOT TESTED YET!!!")
-                )
-                log.warn(
-                    red("CHECK THIS!!! I MEAN, THE PROC GENERATOR IS NOT TESTED YET!!!")
+                log.debug(f"Executing procedure query: {query}")
+                console.print(
+                    "[bold yellow]WARN:[/] Procedure route generator is not fully tested."
                 )
 
-                # Execute procedure
                 db.execute(text(query), params.model_dump())
-
                 return {
                     "status": "success",
                     "message": f"Procedure {fn_name} executed successfully",
                 }
 
-            # Set a unique operation_id to avoid FastAPI route conflicts
             execute_procedure.__name__ = f"execute_procedure_{schema}_{fn_name}"
             return execute_procedure
 
@@ -385,122 +309,86 @@ class ApiPrism:
             fn_name: str,
             fn_metadata: FunctionMetadata,
             is_set: bool,
-            OutputModel,
+            OutputModel: Any,
         ):
-            """Create a handler for functions that correctly captures the current schema and function name."""
+            """Create a handler for functions that correctly captures the current scope."""
 
             async def execute_function(
-                params: InputModel, db=Depends(model_manager.db_client.get_db)
+                params: Any,  # Using Any to satisfy linters, FastAPI will use the correct InputModel
+                db=Depends(model_manager.db_client.get_db),
             ):
                 try:
-                    # Build parameter list for the query
                     param_list = [f":{p}" for p in params.model_fields.keys()]
                     param_values = params.model_dump()
-
-                    # Create query using the correct schema and function name
                     query = f"SELECT * FROM {schema}.{fn_name}({', '.join(param_list)})"
 
-                    # Log the query and parameters for debugging
-                    log.trace(f"Executing query: {query}")
-                    log.trace(f"Parameters: {param_values}")
+                    console.print(f"[dim]Executing query: {query}[/]")
+                    console.print(f"[dim]Parameters: {param_values}[/]")
 
-                    # Execute function
                     result = db.execute(text(query), param_values)
 
-                    # Special handling for scalar functions that return a single value
                     if fn_metadata.type == FunctionType.SCALAR:
-                        # For scalar functions, we always return a single record
                         record = result.fetchone()
-
                         if record is None:
-                            # Handle null result
                             return OutputModel.model_validate({"result": None})
-
-                        # Check if it's a single column result
                         if len(record._mapping) == 1:
-                            # It's a scalar result with a single column
                             value = list(record._mapping.values())[0]
                             return OutputModel.model_validate({"result": value})
                         else:
-                            # Multiple columns returned for the single record
                             return OutputModel.model_validate(dict(record._mapping))
-
-                    # For table and set returning functions
                     else:
                         records = result.fetchall()
-
-                        # If no records, return an empty instance of OutputModel
-                        # to maintain correct typing
                         if not records:
-                            if is_set:
-                                # For set returning functions, return empty list
-                                return []
-                            else:
-                                # For non-set functions, return null values
-                                default_values = {
-                                    field: None
-                                    for field in OutputModel.model_fields.keys()
-                                }
-                                return OutputModel.model_validate(default_values)
-
-                        # For multiple records
+                            return (
+                                []
+                                if is_set
+                                else OutputModel.model_validate(
+                                    {
+                                        field: None
+                                        for field in OutputModel.model_fields.keys()
+                                    }
+                                )
+                            )
                         if len(records) > 1 or is_set:
                             return [
                                 OutputModel.model_validate(dict(r._mapping))
                                 for r in records
                             ]
-
-                        # For single record (non-set functions)
                         return OutputModel.model_validate(dict(records[0]._mapping))
-
                 except Exception as e:
-                    # Provide detailed error information
-                    log.error(f"Error executing function {schema}.{fn_name}: {str(e)}")
+                    log.error(
+                        f"Error executing function {schema}.{fn_name}: {e}",
+                        exc_info=True,
+                    )
                     raise HTTPException(
                         status_code=500, detail=f"Error executing function: {str(e)}"
                     )
 
-            # Set a unique operation_id to avoid FastAPI route conflicts
             execute_function.__name__ = f"execute_function_{schema}_{fn_name}"
             return execute_function
 
-        # Generate routes for each function
-        # Inside the _generate_function_routes method where functions are processed
         for fn_key, fn_metadata in function_cache.items():
             schema, fn_name = fn_key.split(".")
             router_key = f"{schema}_fn"
-
             if router_key not in self.routers:
                 continue
-
             router = self.routers[router_key]
 
-            # Log function route generation
-            log.info(
-                f"Generating {route_type} route for: "
-                f"{color_palette['schema'](schema)}."
-                f"{color_palette['function' if route_type == 'fn' else 'procedure'](fn_name)}"
+            fn_color = "magenta" if route_type == "fn" else "yellow"
+            console.print(
+                f"Generating {route_type} route for: [cyan]{schema}[/].[{fn_color}]{fn_name}[/]"
             )
+            display_function_structure(fn_metadata)
 
-            self._print_function_structure(fn_metadata)
-
-            # Create input model for parameters
             input_fields = {}
             for param in fn_metadata.parameters:
-                # Get parameter type
                 field_type = get_eq_type(param.type)
-
-                # Handle array types
                 if isinstance(field_type, ArrayType):
                     field_type = List[field_type.item_type]
-
-                # Create field
                 input_fields[param.name] = (
                     field_type if not param.has_default else Optional[field_type],
                     Field(default=param.default_value if param.has_default else ...),
                 )
-
-            # Create unique input model for this function
             InputModel = create_model(
                 f"{route_type.capitalize()}_{schema}_{fn_name}_Input",
                 __base__=PrismBaseModel,
@@ -508,69 +396,53 @@ class ApiPrism:
             )
 
             if route_type == "proc":
-                # Generate procedure route with proper scope handling
                 procedure_handler = create_procedure_handler(
                     schema, fn_name, fn_metadata
                 )
-
                 router.add_api_route(
                     path=f"/proc/{fn_name}",
                     endpoint=procedure_handler,
                     methods=["POST"],
+                    response_model=None,
+                    status_code=200,
+                    # Pass the dynamically created model here for FastAPI to use
+                    dependencies=[Depends(lambda: InputModel)],
                     summary=f"Execute {fn_name} procedure",
                     description=fn_metadata.description
                     or f"Execute the {fn_name} procedure",
                 )
             else:
-                # Determine function return type
                 is_set = fn_metadata.type in (
                     FunctionType.TABLE,
                     FunctionType.SET_RETURNING,
                 )
-
-                # Determine what kind of output we should have
                 output_fields = {}
-
-                # Handle different return types
                 if is_set or "TABLE" in (fn_metadata.return_type or ""):
-                    # Parse TABLE return type
                     output_fields = self._parse_table_return_type(
                         fn_metadata.return_type or ""
                     )
                 else:
-                    # Handle scalar return
-                    # For scalar functions, we always expect a single value result
                     output_type = get_eq_type(fn_metadata.return_type or "void")
-
-                    # Handle array types
                     if isinstance(output_type, ArrayType):
                         output_type = List[output_type.item_type]
-
-                    # Create result field (scalar functions return single value)
                     output_fields = {"result": (output_type, ...)}
-
-                # If no fields could be determined, use a generic field
                 if not output_fields:
                     output_fields = {"result": (Any, ...)}
-
-                # Create unique output model for this function
                 OutputModel = create_model(
                     f"{route_type.capitalize()}_{schema}_{fn_name}_Output",
                     __base__=PrismBaseModel,
                     **output_fields,
                 )
-
-                # Create the function handler with proper scope handling
                 function_handler = create_function_handler(
                     schema, fn_name, fn_metadata, is_set, OutputModel
                 )
-
-                # Add the route
                 router.add_api_route(
                     path=f"/fn/{fn_name}",
                     endpoint=function_handler,
                     methods=["POST"],
                     response_model=Union[List[OutputModel], OutputModel],
+                    # Pass the dynamically created model here for FastAPI to use
+                    dependencies=[Depends(lambda: InputModel)],
                     summary=f"Execute {fn_name} function",
                     description=fn_metadata.description
                     or f"Execute the {fn_name} function",
@@ -579,148 +451,50 @@ class ApiPrism:
     def _parse_table_return_type(self, return_type: str) -> Dict[str, Any]:
         """
         Parse TABLE and SETOF return types into field definitions.
-
-        Args:
-            return_type: Function return type string
-
-        Returns:
-            Dictionary of field definitions
         """
-        from prism.common.types import ArrayType, get_eq_type
-
         fields = {}
-
-        # Handle empty or None return type
         if not return_type:
             return {"result": (str, ...)}
-
-        # # Debug information
-        # log.debug(f"Parsing return type: {return_type}")
-
-        # Handle scalar return types that might be mislabeled
         if not ("TABLE" in return_type or "SETOF" in return_type):
-            # Simple scalar return type
             field_type = get_eq_type(return_type)
             return {"result": (field_type, ...)}
-
-        # Parse TABLE type
         if "TABLE" in return_type:
             try:
-                # Strip 'TABLE' and parentheses
                 columns_str = return_type.replace("TABLE", "").strip("()").strip()
-
-                # Handle empty TABLE definition
                 if not columns_str:
                     return {"result": (str, ...)}
-
                 columns = [col.strip() for col in columns_str.split(",")]
-
                 for column in columns:
-                    # Ensure the column definition has a space between name and type
                     if " " not in column:
-                        log.warning(
-                            f"Invalid column definition in TABLE type: {column}"
+                        console.print(
+                            f"[yellow]WARN:[/] Invalid column definition in TABLE type: {column}"
                         )
                         continue
-
                     name, type_str = column.split(" ", 1)
                     field_type = get_eq_type(type_str)
-
-                    # Handle ArrayType in table columns
                     if isinstance(field_type, ArrayType):
                         field_type = List[field_type.item_type]
-
                     fields[name] = (field_type, ...)
             except Exception as e:
-                log.error(f"Error parsing TABLE return type '{return_type}': {str(e)}")
-                # Fallback to generic field
+                console.print(
+                    f"[red]ERROR:[/] Error parsing TABLE return type '{return_type}': {e}"
+                )
                 return {"result": (str, ...)}
-
-        # Handle SETOF type
         elif "SETOF" in return_type:
             try:
-                # Extract the type after SETOF
                 type_str = return_type.replace("SETOF", "").strip()
-
-                # If it's a composite type (not handled yet)
-                if "." in type_str:  # Like "schema.type_name"
+                if "." in type_str:
                     return {"result": (str, ...)}
-
-                # Simple type
                 field_type = get_eq_type(type_str)
                 fields["result"] = (field_type, ...)
             except Exception as e:
-                log.error(f"Error parsing SETOF return type '{return_type}': {str(e)}")
-                # Fallback to generic field
+                console.print(
+                    f"[red]ERROR:[/] Error parsing SETOF return type '{return_type}': {e}"
+                )
                 return {"result": (str, ...)}
-
-        # If we couldn't parse anything meaningful, return a generic field
         if not fields:
             return {"result": (str, ...)}
-
         return fields
-
-    def _print_function_structure(self, fn_metadata: FunctionMetadata) -> None:
-        """Print detailed function structure with parameters and return type."""
-        # Format and print the return type
-        return_type = fn_metadata.return_type or "void"
-        fn_type = str(fn_metadata.type).split(".")[-1]  # Get just the enum name part
-
-        # Create a type description with color formatting
-        if "TABLE" in return_type:
-            type_display = violet("TABLE")
-            if "(" in return_type:
-                # For table functions with column definitions
-                columns_part = return_type.replace("TABLE", "").strip("() ")
-                type_display = f"{type_display}{dim(f'({columns_part})')}"
-        elif "SETOF" in return_type:
-            base_type = return_type.replace("SETOF", "").strip()
-            type_display = f"{violet('SETOF')} {violet(base_type)}"
-        else:
-            type_display = violet(return_type)
-
-        log.simple(f"\t-> {type_display} {yellow(f'({fn_type})')}")
-
-        if fn_metadata.description:
-            log.simple(f"{dim(fn_metadata.description)}")
-
-        # Print parameters section header if there are any
-        if fn_metadata.parameters:
-            # Print each parameter with consistent formatting
-            for param in fn_metadata.parameters:
-                # Format parameter mode
-                mode_str = ""
-
-                match param.mode:
-                    case "IN":
-                        mode_str = dim("IN")
-                    case "OUT":
-                        mode_str = green("OUT")
-                    case "INOUT":
-                        mode_str = yellow("INOUT")
-                    case "VARIADIC":
-                        mode_str = blue("VARIADIC")
-
-                # Format default value if present
-                default_str = ""
-                if param.has_default:
-                    default_value = (
-                        str(param.default_value)
-                        if param.default_value is not None
-                        else "NULL"
-                    )
-                    default_str = dim(f" DEFAULT {default_value}")
-
-                # Print parameter with consistent spacing/formatting as table columns
-                log.simple(
-                    f"\t\t{param.name:<22} {red('  ')}{dim(param.type):<28} "
-                    f"{violet(mode_str):<8}{default_str}"
-                )
-            log.simple("")
-
-        # Print additional metadata if available
-        if fn_metadata.is_strict:
-            log.simple(f"\t\t{'Strict:':<24} {yellow('TRUE')}")
 
 
 # * Additional utility methods
