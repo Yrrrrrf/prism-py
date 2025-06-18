@@ -8,7 +8,6 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from sqlalchemy import Column
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy import Table as SQLTable
 
@@ -141,7 +140,7 @@ def _get_operation_id(path: str, name: str, method: str) -> str:
 
 
 def display_route_links(
-    db_client: "DbClient",
+    db_client: "DbClient",  # type: ignore
     title: str,
     tag: str,
     endpoints: Dict[str, tuple[str, str, str]],
