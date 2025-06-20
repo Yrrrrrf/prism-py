@@ -2,13 +2,13 @@
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import Field, create_model
 from sqlalchemy import text
-
+from rich.panel import Panel
 from prism.api.metadata import MetadataRouter
 from prism.common.types import (
     ArrayType,
@@ -26,11 +26,9 @@ from prism.ui import (
     display_route_links,
     display_table_structure,
     print_welcome,
+    Text,  # from rich.text import Text (reimporting for clarity)
 )
 
-# Optional: For internal logging that is not part of the user-facing CLI output
-# This is different from the console output and can be configured with RichHandler
-# in the main application script if needed.
 log = logging.getLogger(__name__)
 
 
@@ -43,6 +41,7 @@ class ApiPrism:
         self.app = app or FastAPI()
         self.routers: Dict[str, APIRouter] = {}
         self.start_time = datetime.now()
+        self.registered_routers: Set[str] = set()
         self._initialize_app()
 
     def _initialize_app(self) -> None:
@@ -74,7 +73,7 @@ class ApiPrism:
             project_name=self.config.project_name,
             version=self.config.version,
             host=db_client.config.host,
-            port=8000
+            port=8000,
         )
         print()
 
@@ -121,10 +120,12 @@ class ApiPrism:
             )
             generator.generate_routes()
 
-        # Register routers with the app
         for schema in model_manager.include_schemas:
             if schema in self.routers:
-                self.app.include_router(self.routers[schema])
+                router = self.routers[schema]
+                if router.prefix not in self.registered_routers:
+                    self.app.include_router(router)
+                    self.registered_routers.add(router.prefix)
 
         console.print(
             f"[dim bold blue]Generated table routes for {len(model_manager.table_cache)} tables\n"
@@ -135,10 +136,8 @@ class ApiPrism:
         console.rule(
             "[bold light_green]Generating View Routes", style="bold light_green"
         )
-
         from prism.api.views import ViewGenerator
 
-        # Initialize view routers for each schema
         for schema in model_manager.include_schemas:
             router_key = f"{schema}_views"
             if router_key not in self.routers:
@@ -146,20 +145,14 @@ class ApiPrism:
                     prefix=f"/{schema}", tags=[f"{schema.upper()} Views"]
                 )
 
-        # Inside the for loop where views are processed
         for view_key, view_data in model_manager.view_cache.items():
             schema, view_name = view_key.split(".")
             console.print(
                 f"Generating view route for: [cyan]{schema}[/].[green]{view_name}[/]"
             )
-
-            # Call the new UI function
             display_table_structure(view_data[0])
-
             table, (query_model, response_model) = view_data
             router = self.routers[f"{schema}_views"]
-
-            # Create and use View generator
             generator = ViewGenerator(
                 table=table,
                 query_model=query_model,
@@ -170,25 +163,69 @@ class ApiPrism:
             )
             generator.generate_routes()
 
-        # Register all view routers with the app
         for schema in model_manager.include_schemas:
             router_key = f"{schema}_views"
             if router_key in self.routers:
-                self.app.include_router(self.routers[router_key])
+                router = self.routers[router_key]
+                if router.prefix not in self.registered_routers:
+                    self.app.include_router(router)
+                    self.registered_routers.add(router.prefix)
 
         console.print(
             f"[dim bold green]Generated view routes for {len(model_manager.view_cache)} views\n"
         )
 
     def gen_fn_routes(self, model_manager: ModelManager) -> None:
-        """
-        Generate routes for all functions, procedures, and triggers.
-        """
-        console.rule(
-            "[bold red]Generating Function & Procedure Routes", style="bold red"
+        """Generate routes for all database functions."""
+        console.rule("[bold red]Generating Function Routes", style="bold red")
+        self._initialize_function_routers(model_manager)
+        self._generate_function_routes(model_manager, model_manager.fn_cache, "fn")
+        self._register_function_routers(model_manager)
+        console.print(
+            f"[dim bold red]Generated function routes for {len(model_manager.fn_cache)} functions\n"
         )
 
-        # Initialize function routers for each schema
+    def gen_proc_routes(self, model_manager: ModelManager) -> None:
+        """Generate routes for all database procedures."""
+        console.rule("[bold yellow]Generating Procedure Routes", style="bold yellow")
+        self._initialize_function_routers(model_manager)
+        self._generate_function_routes(model_manager, model_manager.proc_cache, "proc")
+        self._register_function_routers(model_manager)
+        console.print(
+            f"[dim bold yellow]Generated procedure routes for {len(model_manager.proc_cache)} procedures\n"
+        )
+
+    def gen_trig_routes(self, model_manager: ModelManager) -> None:
+        """Acknowledge loaded triggers and display them in a styled format."""
+        console.rule("[bold orange1]Analyzing Triggers", style="bold orange1")
+        if model_manager.trig_cache:
+            # todo: Fix the triger here!
+            # todo: Make the trigger routes links work as expected...
+            host = model_manager.db_client.config.host
+            # todo: Make the port configurable
+            docs_base_url = f"http://{host}:8000/docs#/Metadata/get_triggers_dt__schema__triggers_get"
+            tag = "Schema triggers"
+            console.print(
+                Text.from_markup(
+                    f"  [bold]Trigger available.[/] Main Docs: [link={docs_base_url}]{tag}[/link]\n"
+                )
+            )
+            console.print(
+                f"  [dim]Identified [bold]{len(model_manager.trig_cache)}[/] trigger functions:"
+            )
+            for trig_key in model_manager.trig_cache.keys():
+                schema, name = trig_key.split(".")
+                console.print(
+                    f"    [dim]• [cyan]{schema}[/][/].[orange1 bold]{name}[/]"
+                )
+            console.print()
+        else:
+            console.print("  [dim]No triggers found in specified schemas.")
+
+        console.print()
+
+    def _initialize_function_routers(self, model_manager: ModelManager) -> None:
+        """Helper to initialize routers for functions/procedures if not already present."""
         for schema in model_manager.include_schemas:
             router_key = f"{schema}_fn"
             if router_key not in self.routers:
@@ -196,22 +233,15 @@ class ApiPrism:
                     prefix=f"/{schema}", tags=[f"{schema.upper()} Functions"]
                 )
 
-        # Process regular functions
-        self._generate_function_routes(model_manager, model_manager.fn_cache, "fn")
-
-        # Process procedures
-        self._generate_function_routes(model_manager, model_manager.proc_cache, "proc")
-
-        # Register all function routers with the app
+    def _register_function_routers(self, model_manager: ModelManager) -> None:
+        """Helper to register function/procedure routers with the app."""
         for schema in model_manager.include_schemas:
             router_key = f"{schema}_fn"
             if router_key in self.routers:
-                self.app.include_router(self.routers[router_key])
-
-        console.print(
-            f"[dim bold red]Generated function routes for {len(model_manager.fn_cache)} functions "
-            f"and {len(model_manager.proc_cache)} procedures\n"
-        )
+                router = self.routers[router_key]
+                if router.prefix not in self.registered_routers:
+                    self.app.include_router(router)
+                    self.registered_routers.add(router.prefix)
 
     def gen_metadata_routes(self, model_manager: ModelManager) -> None:
         """
@@ -295,11 +325,16 @@ class ApiPrism:
 
         Convenience method to generate all route types in the recommended order.
         """
+        # Generate metadata and health routes first
         self.gen_metadata_routes(model_manager)
         self.gen_health_routes(model_manager)
+        # Generate routes for tables and views first
         self.gen_table_routes(model_manager)
         self.gen_view_routes(model_manager)
+        # Then generate function, procedure, and trigger routes
         self.gen_fn_routes(model_manager)
+        self.gen_proc_routes(model_manager)
+        self.gen_trig_routes(model_manager)
 
     def _generate_function_routes(
         self,
@@ -310,9 +345,6 @@ class ApiPrism:
         """
         Generate routes for a specific type of database function.
         """
-        # Note: The `InputModel` variable below might be flagged by some linters
-        # because it's defined inside a loop. This is necessary for creating
-        # unique Pydantic models per function and is functionally correct for FastAPI.
 
         def create_procedure_handler(
             schema: str, fn_name: str, fn_metadata: FunctionMetadata
@@ -579,40 +611,3 @@ class ApiPrism:
 #         self.app.include_router(self.routers["custom"])
 
 #     log.success(f"Added custom route: {path}")
-
-
-# todo: Check if this is needed...
-# def configure_error_handlers(self) -> None:
-#     """
-#     Configure global error handlers for the API.
-
-#     Sets up custom exception handlers for common error types.
-#     """
-#     @self.app.exception_handler(HTTPException)
-#     async def http_exception_handler(request, exc):
-#         return JSONResponse(
-#             status_code=exc.status_code,
-#             content={
-#                 "error": True,
-#                 "message": exc.detail,
-#                 "status_code": exc.status_code
-#             }
-#         )
-
-
-#     @self.app.exception_handler(Exception)
-#     async def general_exception_handler(request, exc):
-#         # Log the error
-#         log.error(f"Unhandled exception: {str(exc)}")
-
-#         return JSONResponse(
-#             status_code=500,
-#             content={
-#                 "error": True,
-#                 "message": "Internal server error",
-#                 "detail": str(exc) if self.config.debug_mode else None,
-#                 "status_code": 500
-#             }
-#         )
-
-#     log.success("Configured global error handlers")

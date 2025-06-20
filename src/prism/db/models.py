@@ -75,11 +75,10 @@ class ModelManager:
                 self._load_models(schema)
                 self._load_enums(schema)
                 self._load_views(schema)
-                self._load_enums(schema)
                 # Call the new, separated discovery methods per schema
-                self._load_functions_for_schema(schema)
-                self._load_procedures_for_schema(schema)
-                self._load_triggers_for_schema(schema)
+                self._load_functions(schema)
+                self._load_procedures(schema)
+                self._load_triggers(schema)
 
                 print()
 
@@ -155,9 +154,7 @@ class ModelManager:
                 )
                 key = f"{schema}.{table.name}"
                 self.table_cache[key] = (table, (pydantic_model, sqlalchemy_model))
-                console.print(
-                    f"\t[dim]table: [blue]{table.name}[/]"
-                )
+                console.print(f"\t[dim]table: [blue]{table.name}[/]")
 
     def _load_enums(self, schema: str) -> None:
         """Load database enums."""
@@ -179,9 +176,7 @@ class ModelManager:
                                 ),
                                 schema=schema,
                             )
-                            console.print(
-                                f"\t[dim]enum: [yellow]{enum_name}[/]"
-                            )
+                            console.print(f"\t[dim]enum: [yellow]{enum_name}[/]")
 
     def _load_views(self, schema: str) -> None:
         """Load database views."""
@@ -228,9 +223,7 @@ class ModelManager:
                 )
                 key = f"{schema}.{table.name}"
                 self.view_cache[key] = (table, (QueryModel, ResponseModel))
-                console.print(
-                    f"\t[dim]view: [green]{table.name}[/]"
-                )
+                console.print(f"\t[dim]view: [green]{table.name}[/]")
 
     def _get_sample_data(
         self, schema: str, table_name: str
@@ -246,9 +239,7 @@ class ModelManager:
             log.debug(f"Could not get sample data for {schema}.{table_name}: {e}")
         return None
 
-
-
-    def _load_functions_for_schema(self, schema: str) -> None:
+    def _load_functions(self, schema: str) -> None:
         """Load database functions for a specific schema."""
         query = """
             WITH function_info AS (
@@ -296,7 +287,6 @@ class ModelManager:
                 return FunctionType.WINDOW
             return FunctionType.SCALAR
 
-
         with next(self.db_client.get_db()) as db:
             result = db.execute(text(query), {"schema": schema})
             for row in result:
@@ -312,12 +302,9 @@ class ModelManager:
                 )
                 component = f"{row.schema}.{row.name}"
                 self.fn_cache[component] = metadata
-                console.print(
-                    f"\t[dim]function: [red]{row.name}[/]"
-                )
+                console.print(f"\t[dim]function: [red]{row.name}[/]")
 
-
-    def _load_procedures_for_schema(self, schema: str) -> None:
+    def _load_procedures(self, schema: str) -> None:
         """Load database procedures for a specific schema."""
         query = """
             WITH procedure_info AS (
@@ -364,12 +351,9 @@ class ModelManager:
                 )
                 component = f"{row.schema}.{row.name}"
                 self.proc_cache[component] = metadata
-                console.print(
-                    f"\t[dim]procedure: [yellow]{row.name}[/]"
-                )
+                console.print(f"\t[dim]procedure: [yellow]{row.name}[/]")
 
-
-    def _load_triggers_for_schema(self, schema: str) -> None:
+    def _load_triggers(self, schema: str) -> None:
         """Load database triggers for a specific schema."""
         query = """
             WITH trigger_info AS (
@@ -402,7 +386,6 @@ class ModelManager:
             ORDER BY name;
         """
 
-
         with next(self.db_client.get_db()) as db:
             result = db.execute(text(query), {"schema": schema})
             for row in result:
@@ -418,24 +401,7 @@ class ModelManager:
                 )
                 component = f"{row.schema}.{row.name}"
                 self.trig_cache[component] = metadata
-                console.print(
-                    f"\t[dim]trigger:  [orange1]{row.name}[/]"
-                )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                console.print(f"\t[dim]trigger:  [orange1]{row.name}[/]")
 
     def log_metadata_stats(self):
         """Print metadata statistics in a rich table format."""
@@ -494,7 +460,6 @@ class ModelManager:
         table.columns[7].footer = f"[bold]{sum(totals.values())}[/]"
 
         console.print(table)
-
 
 
 def parse_parameters(args_str: str) -> List[FunctionParameter]:

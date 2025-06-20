@@ -63,10 +63,15 @@ api_prism = ApiPrism(
 # Generate metadata & health routes
 api_prism.gen_metadata_routes(model_manager)
 api_prism.gen_health_routes(model_manager)
+
 # Generate API routes for all database objects
-api_prism.gen_table_routes(model_manager)
+api_prism.gen_table_routes(model_manager)  # * this one also add enums
 api_prism.gen_view_routes(model_manager)
+
+# Generate API routes for functions, procedures, and triggers
 api_prism.gen_fn_routes(model_manager)
+api_prism.gen_proc_routes(model_manager)
+api_prism.gen_trig_routes(model_manager)
 
 # Display database statistics
 model_manager.log_metadata_stats()
