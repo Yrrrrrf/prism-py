@@ -74,7 +74,7 @@ class ApiPrism:
             project_name=self.config.project_name,
             version=self.config.version,
             host=db_client.config.host,
-            port=8000
+            port=8000,
         )
         print()
 
