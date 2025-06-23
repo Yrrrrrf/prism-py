@@ -21,6 +21,11 @@ class IntrospectorABC(ABC):
         pass
 
     @abstractmethod
+    def get_views(self, schema: str) -> List[TableMetadata]:
+        """Returns metadata for all views in a given schema."""
+        pass
+
+    @abstractmethod
     def get_enums(self, schema: str) -> Dict[str, EnumInfo]:
         """Returns all enum type definitions in a given schema."""
         pass
@@ -28,4 +33,14 @@ class IntrospectorABC(ABC):
     @abstractmethod
     def get_functions(self, schema: str) -> List[FunctionMetadata]:
         """Returns metadata for all functions and procedures in a given schema."""
+        pass
+
+    @abstractmethod
+    def get_procedures(self, schema: str) -> List[FunctionMetadata]:
+        """Returns metadata for all stored procedures in a given schema."""
+        pass
+
+    @abstractmethod
+    def get_triggers(self, schema: str) -> List[FunctionMetadata]:
+        """Returns metadata for all triggers in a given schema."""
         pass

@@ -6,13 +6,14 @@ from pydantic import BaseModel, ConfigDict, create_model
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ...core.models.tables import TableMetadata
-from ...core.query.builder import QueryBuilder
-from ...core.query.operators import SQL_OPERATOR_MAP
-from ...core.types.utils import (
+from prism.api.routers import gen_openapi_parameters
+
+from prism.core.models.tables import TableMetadata
+from prism.core.query.builder import QueryBuilder
+from prism.core.query.operators import SQL_OPERATOR_MAP
+from prism.core.types.utils import (
     ArrayType,
     JSONBType,
-    PY_TO_JSON_SCHEMA_TYPE,
     get_python_type,
 )
 
@@ -66,54 +67,6 @@ class ViewGenerator:
             **fields,
             __config__=ConfigDict(from_attributes=True),
         )
-
-    def _generate_openapi_parameters(self) -> List[Dict[str, Any]]:
-        # This is identical to the CrudGenerator's implementation
-        parameters = [
-            {
-                "name": "limit",
-                "in": "query",
-                "required": False,
-                "description": "Maximum number of records to return.",
-                "schema": {"type": "integer", "default": 100},
-            },
-            {
-                "name": "offset",
-                "in": "query",
-                "required": False,
-                "description": "Number of records to skip.",
-                "schema": {"type": "integer", "default": 0},
-            },
-            {
-                "name": "order_by",
-                "in": "query",
-                "required": False,
-                "description": "Column to sort by.",
-                "schema": {"type": "string"},
-            },
-            {
-                "name": "order_dir",
-                "in": "query",
-                "required": False,
-                "description": "Sort direction: 'asc' or 'desc'.",
-                "schema": {"type": "string", "default": "asc", "enum": ["asc", "desc"]},
-            },
-        ]
-        for col in self.view_meta.columns:
-            base_py_type = get_python_type(col.sql_type, nullable=False)
-            if isinstance(base_py_type, (ArrayType, JSONBType)):
-                continue
-            json_type = PY_TO_JSON_SCHEMA_TYPE.get(base_py_type, "string")
-            parameters.append(
-                {
-                    "name": col.name,
-                    "in": "query",
-                    "required": False,
-                    "description": f"Filter records by an exact match on the '{col.name}' field.",
-                    "schema": {"type": json_type},
-                }
-            )
-        return parameters
 
     def _generate_endpoint_description(self) -> str:
         # This is also identical to the CrudGenerator's implementation
@@ -174,16 +127,6 @@ class ViewGenerator:
             result = db.execute(text(final_query), params)
             return result.mappings().all()
 
-        self.router.add_api_route(
-            path=f"/{self.view_meta.name}",
-            endpoint=read_resources,
-            methods=["GET"],
-            response_model=List[self.pydantic_read_model],
-            summary=f"Read and filter {self.view_meta.name} view records",
-            description=self._generate_endpoint_description(),
-            openapi_extra={"parameters": self._generate_openapi_parameters()},
-        )
-
         # We cannot use SQLAlchemy ORM here, so we build a raw query.
         # The QueryBuilder logic needs a slight adaptation.
         def read_resources(
@@ -216,5 +159,5 @@ class ViewGenerator:
             response_model=List[self.pydantic_read_model],
             summary=f"Read and filter {self.view_meta.name} view records",
             description=self._generate_endpoint_description(),
-            openapi_extra={"parameters": self._generate_openapi_parameters()},
+            openapi_extra={"parameters": gen_openapi_parameters(self.view_meta)},
         )

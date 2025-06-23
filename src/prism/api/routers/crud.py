@@ -6,13 +6,14 @@ from pydantic import BaseModel, ConfigDict, create_model
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
 
-from ...core.models.tables import TableMetadata
-from ...core.query.builder import QueryBuilder
-from ...core.query.operators import SQL_OPERATOR_MAP
-from ...core.types.utils import (
+from prism.api.routers import gen_openapi_parameters
+
+from prism.core.models.tables import TableMetadata
+from prism.core.query.builder import QueryBuilder
+from prism.core.query.operators import SQL_OPERATOR_MAP
+from prism.core.types.utils import (
     ArrayType,
     JSONBType,
-    PY_TO_JSON_SCHEMA_TYPE,
     get_python_type,
 )
 
@@ -140,53 +141,6 @@ class CrudGenerator:
             f"{model_name_prefix}{self.table_meta.name.capitalize()}Model", **fields
         )
 
-    def _generate_openapi_parameters(self) -> List[Dict[str, Any]]:
-        parameters = [
-            {
-                "name": "limit",
-                "in": "query",
-                "required": False,
-                "description": "Maximum number of records to return.",
-                "schema": {"type": "integer", "default": 100},
-            },
-            {
-                "name": "offset",
-                "in": "query",
-                "required": False,
-                "description": "Number of records to skip.",
-                "schema": {"type": "integer", "default": 0},
-            },
-            {
-                "name": "order_by",
-                "in": "query",
-                "required": False,
-                "description": "Column to sort by.",
-                "schema": {"type": "string"},
-            },
-            {
-                "name": "order_dir",
-                "in": "query",
-                "required": False,
-                "description": "Sort direction: 'asc' or 'desc'.",
-                "schema": {"type": "string", "default": "asc", "enum": ["asc", "desc"]},
-            },
-        ]
-        for col in self.table_meta.columns:
-            base_py_type = get_python_type(col.sql_type, nullable=False)
-            if isinstance(base_py_type, (ArrayType, JSONBType)):
-                continue
-            json_type = PY_TO_JSON_SCHEMA_TYPE.get(base_py_type, "string")
-            parameters.append(
-                {
-                    "name": col.name,
-                    "in": "query",
-                    "required": False,
-                    "description": f"Filter records by an exact match on the '{col.name}' field.",
-                    "schema": {"type": json_type},
-                }
-            )
-        return parameters
-
     def _generate_endpoint_description(self) -> str:
         fields_list = "\n".join(
             f"- `{col.name}`"
@@ -223,7 +177,7 @@ class CrudGenerator:
             response_model=List[self.pydantic_read_model],
             summary=f"Read and filter {self.table_meta.name} records",
             description=self._generate_endpoint_description(),
-            openapi_extra={"parameters": self._generate_openapi_parameters()},
+            openapi_extra={"parameters": gen_openapi_parameters(self.table_meta)},
         )
 
     def _add_create_route(self):

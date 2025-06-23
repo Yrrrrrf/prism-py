@@ -72,7 +72,6 @@ schemas = [
     "library",
 ]
 api_prism.generate_all_routes(schemas)
-print("✅ API generation complete.")
 
 
 # --- 4. Server Startup ---
