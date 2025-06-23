@@ -7,6 +7,7 @@ from typing import List, Optional, Type
 @dataclass(frozen=True)
 class EnumInfo:
     """Internal representation of a database enum type."""
+
     name: str
     schema: str
     values: List[str]

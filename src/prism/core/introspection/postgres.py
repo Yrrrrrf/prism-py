@@ -28,7 +28,9 @@ class PostgresIntrospector(IntrospectorABC):
         for table_name in table_names + view_names:
             is_view = table_name in view_names
             columns = self._get_columns(schema, table_name)
-            pks = self.inspector.get_pk_constraint(table_name, schema).get("constrained_columns", [])
+            pks = self.inspector.get_pk_constraint(table_name, schema).get(
+                "constrained_columns", []
+            )
 
             results.append(
                 TableMetadata(
@@ -37,7 +39,9 @@ class PostgresIntrospector(IntrospectorABC):
                     columns=columns,
                     primary_key_columns=pks,
                     is_view=is_view,
-                    comment=self.inspector.get_table_comment(table_name, schema).get("text")
+                    comment=self.inspector.get_table_comment(table_name, schema).get(
+                        "text"
+                    ),
                 )
             )
         return results
@@ -45,26 +49,28 @@ class PostgresIntrospector(IntrospectorABC):
     def _get_columns(self, schema: str, table_name: str) -> List[ColumnMetadata]:
         column_data = self.inspector.get_columns(table_name, schema)
         fks = self.inspector.get_foreign_keys(table_name, schema)
-        fk_map = {item['constrained_columns'][0]: item for item in fks}
+        fk_map = {item["constrained_columns"][0]: item for item in fks}
 
         columns = []
         for col in column_data:
             foreign_key = None
-            if col['name'] in fk_map:
-                fk_info = fk_map[col['name']]
-                ref_table = fk_info['referred_table']
-                ref_schema = fk_info['referred_schema']
-                ref_column = fk_info['referred_columns'][0]
-                foreign_key = ColumnReference(schema=ref_schema, table=ref_table, column=ref_column)
+            if col["name"] in fk_map:
+                fk_info = fk_map[col["name"]]
+                ref_table = fk_info["referred_table"]
+                ref_schema = fk_info["referred_schema"]
+                ref_column = fk_info["referred_columns"][0]
+                foreign_key = ColumnReference(
+                    schema=ref_schema, table=ref_table, column=ref_column
+                )
 
             columns.append(
                 ColumnMetadata(
-                    name=col['name'],
-                    sql_type=str(col['type']),
-                    is_nullable=col['nullable'],
-                    is_primary_key=col.get('primary_key', False),
-                    default_value=col.get('default'),
-                    comment=col.get('comment'),
+                    name=col["name"],
+                    sql_type=str(col["type"]),
+                    is_nullable=col["nullable"],
+                    is_primary_key=col.get("primary_key", False),
+                    default_value=col.get("default"),
+                    comment=col.get("comment"),
                     foreign_key=foreign_key,
                 )
             )

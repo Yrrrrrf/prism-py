@@ -4,11 +4,17 @@ from typing import Dict, List
 from fastapi import APIRouter, FastAPI
 from sqlalchemy.engine import Engine
 
-# Note the corrected import paths based on our new structure
+# Import all our generators
 from .api.routers.crud import CrudGenerator
+from .api.routers.views import ViewGenerator
+from .api.routers.functions import FunctionGenerator
+from .api.routers.metadata import MetadataGenerator
+from .api.routers.health import HealthGenerator
+
 from .core.introspection.base import IntrospectorABC
 from .core.introspection.postgres import PostgresIntrospector
 from .db.client import DbClient
+from .ui import print_welcome  # Use the rich UI
 
 
 class ApiPrism:
@@ -19,40 +25,85 @@ class ApiPrism:
         self.app = app
         self.introspector = self._get_introspector(db_client.engine)
         self.routers: Dict[str, APIRouter] = {}
+        # Store all introspection results to avoid re-querying
+        self.db_metadata = {}
 
     def _get_introspector(self, engine: Engine) -> IntrospectorABC:
-        # This factory would choose based on dialect. For now, we hardcode PostgreSQL.
         return PostgresIntrospector(engine)
+
+    def _introspect_all(self, schemas: List[str]):
+        """Runs introspection for all specified schemas and caches the results."""
+        print("🔍 Starting database introspection...")
+        for schema in schemas:
+            print(f"  Introspecting schema: '{schema}'")
+            self.db_metadata[schema] = {
+                "tables": self.introspector.get_tables(schema=schema),
+                "enums": self.introspector.get_enums(schema=schema),
+                "functions": self.introspector.get_functions(schema=schema),
+            }
+        print("✅ Introspection complete.")
 
     def generate_all_routes(self, schemas: List[str]):
         """
         Introspects the database and generates all API routes.
         """
+        # 1. Run introspection once and cache it
+        self._introspect_all(schemas)
+
+        # 2. Generate schema-specific routes
         for schema in schemas:
-            print(f"Processing schema: '{schema}'")
+            print(f"⚙️  Generating routes for schema: '{schema}'")
             if schema not in self.routers:
-                self.routers[schema] = APIRouter(prefix=f"/{schema}", tags=[schema.upper()])
-
-            tables = self.introspector.get_tables(schema)
-            print(f" Found {len(tables)} tables/views in schema '{schema}'.")
-
-            for table_meta in tables:
-                print(f" Generating routes for: {schema}.{table_meta.name}")
-                
-                # =================== THE FIX IS HERE ===================
-                crud_gen = CrudGenerator(
-                    table_metadata=table_meta,
-                    db_dependency=self.db_client.get_db,
-                    router=self.routers[schema],
-                    engine=self.db_client.engine, # <-- PASS THE ENGINE HERE
+                self.routers[schema] = APIRouter(
+                    prefix=f"/{schema}", tags=[schema.upper()]
                 )
-                # =======================================================
-                
-                crud_gen.generate_routes()
+
+            schema_meta = self.db_metadata[schema]
+
+            for table_meta in schema_meta["tables"]:
+                if table_meta.is_view:
+                    # Use the ViewGenerator
+                    gen = ViewGenerator(
+                        view_metadata=table_meta,
+                        db_dependency=self.db_client.get_db,
+                        router=self.routers[schema],
+                    )
+                else:
+                    # Use the CrudGenerator
+                    gen = CrudGenerator(
+                        table_metadata=table_meta,
+                        db_dependency=self.db_client.get_db,
+                        router=self.routers[schema],
+                        engine=self.db_client.engine,
+                    )
+                gen.generate_routes()
+
+            # TODO: Add Function/Procedure generation loop
+            # for func_meta in schema_meta["functions"]:
+            #     gen = FunctionGenerator(...)
+            #     gen.generate_routes()
 
             self.app.include_router(self.routers[schema])
 
-        # TODO: Add metadata and health route generation here
+        # 3. Generate global routes
+        print("⚙️  Generating global routes (metadata, health)...")
+        # TODO: Implement and call MetadataGenerator
+        # metadata_gen = MetadataGenerator(self.db_metadata, self.app)
+        # metadata_gen.generate_routes()
+
+        # TODO: Implement and call HealthGenerator
+        # health_gen = HealthGenerator(self.db_client, self.app)
+        # health_gen.generate_routes()
+
+    def print_welcome_message(self, host: str, port: int):
+        """Prints the welcome banner using the UI module."""
+        print_welcome(
+            project_name=f"Prism-py: {self.db_client.engine.url.database}",
+            version="0.1.0-refactored",
+            host=host,
+            port=port,
+        )
+
 
 # import logging
 # from datetime import datetime

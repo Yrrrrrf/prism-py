@@ -6,6 +6,7 @@ from typing import Any, Callable, List, Optional, Type
 
 class SqlTypeCategory(str, Enum):
     """Categories of SQL types for organized mapping."""
+
     NUMERIC = "numeric"
     STRING = "string"
     TEMPORAL = "temporal"
@@ -21,6 +22,7 @@ class SqlTypeCategory(str, Enum):
 @dataclass(frozen=True)
 class TypeMapping:
     """Defines a mapping from a SQL type pattern to a Python type."""
+
     sql_pattern: str
     python_type: Type
     category: SqlTypeCategory
@@ -56,5 +58,5 @@ SQL_TYPE_MAPPINGS: List[TypeMapping] = [
     # Binary types
     TypeMapping(r"^bytea$", bytes, SqlTypeCategory.BINARY),
     # Other types
-    TypeMapping(r"^.*$", Any, SqlTypeCategory.OTHER), # Fallback
+    TypeMapping(r"^.*$", Any, SqlTypeCategory.OTHER),  # Fallback
 ]

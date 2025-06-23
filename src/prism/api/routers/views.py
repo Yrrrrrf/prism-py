@@ -1,0 +1,220 @@
+# src/prism/api/routers/views.py
+from typing import Any, Callable, Dict, List, Type
+
+from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel, ConfigDict, create_model
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from ...core.models.tables import TableMetadata
+from ...core.query.builder import QueryBuilder
+from ...core.query.operators import SQL_OPERATOR_MAP
+from ...core.types.utils import (
+    ArrayType,
+    JSONBType,
+    PY_TO_JSON_SCHEMA_TYPE,
+    get_python_type,
+)
+
+
+def get_query_params(request: Request) -> Dict[str, Any]:
+    return dict(request.query_params)
+
+
+class ViewGenerator:
+    """Generates read-only, filterable API routes for a database view."""
+
+    def __init__(
+        self,
+        view_metadata: TableMetadata,
+        db_dependency: Callable[..., Session],
+        router: APIRouter,
+    ):
+        self.view_meta = view_metadata
+        self.db_dependency = db_dependency
+        self.router = router
+        self.pydantic_read_model = self._create_pydantic_read_model()
+
+    def generate_routes(self):
+        self._add_read_route()
+        print(
+            f"  ✓ Generated READ route for view {self.view_meta.schema}.{self.view_meta.name}"
+        )
+
+    def _create_pydantic_read_model(self) -> Type[BaseModel]:
+        fields = {}
+        for col in self.view_meta.columns:
+            internal_type = get_python_type(col.sql_type, col.is_nullable)
+            pydantic_type: Type = (
+                Any
+                if isinstance(internal_type, JSONBType)
+                else (
+                    List[Any]
+                    if isinstance(internal_type, ArrayType)
+                    and isinstance(internal_type.item_type, JSONBType)
+                    else (
+                        List[internal_type.item_type]
+                        if isinstance(internal_type, ArrayType)
+                        else internal_type
+                    )
+                )
+            )
+            final_type = pydantic_type | None if col.is_nullable else pydantic_type
+            fields[col.name] = (final_type, None if col.is_nullable else ...)
+        return create_model(
+            f"{self.view_meta.name.capitalize()}ViewReadModel",
+            **fields,
+            __config__=ConfigDict(from_attributes=True),
+        )
+
+    def _generate_openapi_parameters(self) -> List[Dict[str, Any]]:
+        # This is identical to the CrudGenerator's implementation
+        parameters = [
+            {
+                "name": "limit",
+                "in": "query",
+                "required": False,
+                "description": "Maximum number of records to return.",
+                "schema": {"type": "integer", "default": 100},
+            },
+            {
+                "name": "offset",
+                "in": "query",
+                "required": False,
+                "description": "Number of records to skip.",
+                "schema": {"type": "integer", "default": 0},
+            },
+            {
+                "name": "order_by",
+                "in": "query",
+                "required": False,
+                "description": "Column to sort by.",
+                "schema": {"type": "string"},
+            },
+            {
+                "name": "order_dir",
+                "in": "query",
+                "required": False,
+                "description": "Sort direction: 'asc' or 'desc'.",
+                "schema": {"type": "string", "default": "asc", "enum": ["asc", "desc"]},
+            },
+        ]
+        for col in self.view_meta.columns:
+            base_py_type = get_python_type(col.sql_type, nullable=False)
+            if isinstance(base_py_type, (ArrayType, JSONBType)):
+                continue
+            json_type = PY_TO_JSON_SCHEMA_TYPE.get(base_py_type, "string")
+            parameters.append(
+                {
+                    "name": col.name,
+                    "in": "query",
+                    "required": False,
+                    "description": f"Filter records by an exact match on the '{col.name}' field.",
+                    "schema": {"type": json_type},
+                }
+            )
+        return parameters
+
+    def _generate_endpoint_description(self) -> str:
+        # This is also identical to the CrudGenerator's implementation
+        fields_list = "\n".join(
+            f"- `{col.name}`"
+            for col in self.view_meta.columns
+            if not isinstance(
+                get_python_type(col.sql_type, False), (ArrayType, JSONBType)
+            )
+        )
+        return f"""Retrieve records from view `{self.view_meta.name}`.\n\nSimple equality filters can be applied directly via the parameters below.\n\n### Advanced Filtering\nFor more complex queries, use the `field[operator]=value` syntax.\n\n- **Available Operators:** `{", ".join(f"`{op}`" for op in SQL_OPERATOR_MAP.keys())}`\n- **Example:** `?age[gte]=18&status[in]=active,pending`\n\n### Filterable Fields\n{fields_list}"""
+
+    # In src/prism/api/routers/views.py, inside the ViewGenerator class...
+
+    def _add_read_route(self):
+        # We cannot use SQLAlchemy ORM here, so we build a raw query.
+        # The QueryBuilder logic needs a slight adaptation.
+        def read_resources(
+            db: Session = Depends(self.db_dependency),
+            query_params: Dict[str, Any] = Depends(get_query_params),
+        ) -> List[Any]:
+            # This is a placeholder model for the query builder to check field names.
+            class TempModel:
+                pass
+
+            for col in self.view_meta.columns:
+                setattr(TempModel, col.name, None)
+
+            # <<< START OF FIX >>>
+            # Pre-process parameters to convert simple filters like `?name=value`
+            # into the `?name[eq]=value` format that QueryBuilder expects.
+            processed_params = {}
+            for k, v in query_params.items():
+                if hasattr(TempModel, k):
+                    # This is a simple equality filter, so transform it.
+                    processed_params[f"{k}[eq]"] = v
+                else:
+                    # This is either an advanced filter (name[op]=v) or a reserved
+                    # keyword (limit, offset, etc.), so keep it as is.
+                    processed_params[k] = v
+            # <<< END OF FIX >>>
+
+            base_query = f"SELECT * FROM {self.view_meta.schema}.{self.view_meta.name}"
+
+            # The QueryBuilder doesn't build the query directly but gives us clauses
+            where_clause, order_clause, limit_clause, offset_clause, params = (
+                QueryBuilder(
+                    model=TempModel,
+                    params=processed_params,  # Use the pre-processed params!
+                ).build_clauses()
+            )
+
+            final_query = f"{base_query} {where_clause} {order_clause} {limit_clause} {offset_clause}"
+
+            # For debugging, it's great to see the final query
+            print(f"Executing View Query: {final_query} with params: {params}")
+
+            result = db.execute(text(final_query), params)
+            return result.mappings().all()
+
+        self.router.add_api_route(
+            path=f"/{self.view_meta.name}",
+            endpoint=read_resources,
+            methods=["GET"],
+            response_model=List[self.pydantic_read_model],
+            summary=f"Read and filter {self.view_meta.name} view records",
+            description=self._generate_endpoint_description(),
+            openapi_extra={"parameters": self._generate_openapi_parameters()},
+        )
+
+        # We cannot use SQLAlchemy ORM here, so we build a raw query.
+        # The QueryBuilder logic needs a slight adaptation.
+        def read_resources(
+            db: Session = Depends(self.db_dependency),
+            query_params: Dict[str, Any] = Depends(get_query_params),
+        ) -> List[Any]:
+            # This is a placeholder model for the query builder to check field names.
+            class TempModel:
+                pass
+
+            for col in self.view_meta.columns:
+                setattr(TempModel, col.name, None)
+
+            base_query = f"SELECT * FROM {self.view_meta.schema}.{self.view_meta.name}"
+
+            # The QueryBuilder doesn't build the query directly but gives us clauses
+            where_clause, order_clause, limit_clause, offset_clause, params = (
+                QueryBuilder(model=TempModel, params=query_params).build_clauses()
+            )  # We will need to add this method to QueryBuilder
+
+            final_query = f"{base_query} {where_clause} {order_clause} {limit_clause} {offset_clause}"
+
+            result = db.execute(text(final_query), params)
+            return result.mappings().all()
+
+        self.router.add_api_route(
+            path=f"/{self.view_meta.name}",
+            endpoint=read_resources,
+            methods=["GET"],
+            response_model=List[self.pydantic_read_model],
+            summary=f"Read and filter {self.view_meta.name} view records",
+            description=self._generate_endpoint_description(),
+            openapi_extra={"parameters": self._generate_openapi_parameters()},
+        )

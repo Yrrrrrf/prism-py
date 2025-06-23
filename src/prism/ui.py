@@ -11,7 +11,7 @@ from rich.text import Text
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy import Table as SQLTable
 
-from .common.types import JSONBType, get_eq_type
+from prism.core.types.utils import JSONBType, get_python_type
 
 # --- Global Console ---
 console = Console()
@@ -50,7 +50,7 @@ def display_table_structure(table: SQLTable) -> None:
         sql_type_str = f"{str(column.type):<20}"  # Padded SQL type
 
         # --- Column 4: Python Type ---
-        py_type = get_eq_type(str(column.type), nullable=column.nullable)
+        py_type = get_python_type(str(column.type), nullable=column.nullable)
         if isinstance(py_type, JSONBType):
             python_type_str = f"{'JSONB':<15}"
         elif isinstance(column.type, SQLAlchemyEnum):

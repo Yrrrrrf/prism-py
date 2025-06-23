@@ -253,12 +253,16 @@ from sqlalchemy.orm import sessionmaker
 # You could also move the old DbConfig/PoolConfig dataclasses here if you want.
 # For now, we'll keep it simple.
 
+
 class DbClient:
     """Manages the database connection engine and session creation."""
+
     def __init__(self, db_url: str):
         # echo=True is essential for debugging our first queries
         self.engine: Engine = create_engine(db_url, echo=True)
-        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        self.SessionLocal = sessionmaker(
+            autocommit=False, autoflush=False, bind=self.engine
+        )
         print("✅ DbClient initialized and connected to the database.")
 
     def get_db(self):

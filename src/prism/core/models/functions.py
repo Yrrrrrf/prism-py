@@ -6,6 +6,7 @@ from typing import Any, List, Optional
 
 class FunctionType(str, Enum):
     """Types of database functions."""
+
     SCALAR = "scalar"
     TABLE = "table"
     SET_RETURNING = "set"
@@ -15,6 +16,7 @@ class FunctionType(str, Enum):
 
 class ObjectType(str, Enum):
     """Types of database objects that are callable."""
+
     FUNCTION = "function"
     PROCEDURE = "procedure"
     TRIGGER = "trigger"
@@ -23,6 +25,7 @@ class ObjectType(str, Enum):
 @dataclass(frozen=True)
 class FunctionParameter:
     """Internal representation of a function/procedure parameter."""
+
     name: str
     type: str
     mode: str = "IN"
@@ -33,6 +36,7 @@ class FunctionParameter:
 @dataclass(frozen=True)
 class FunctionMetadata:
     """Internal representation of a database function or procedure."""
+
     schema: str
     name: str
     type: FunctionType
