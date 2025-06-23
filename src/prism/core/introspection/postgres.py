@@ -63,13 +63,17 @@ class PostgresIntrospector(IntrospectorABC):
     def get_schemas(self) -> List[str]:
         return self.inspector.get_schema_names()
 
-    def _create_table_metadata(self, schema: str, name: str, is_view: bool) -> TableMetadata:
+    def _create_table_metadata(
+        self, schema: str, name: str, is_view: bool
+    ) -> TableMetadata:
         """Private helper to build a TableMetadata object for a table or view."""
         columns = self._get_columns(schema, name)
         # Views don't have primary keys, so this will correctly return an empty list
-        pks = self.inspector.get_pk_constraint(name, schema).get("constrained_columns", [])
+        pks = self.inspector.get_pk_constraint(name, schema).get(
+            "constrained_columns", []
+        )
         comment = self.inspector.get_table_comment(name, schema).get("text")
-        
+
         return TableMetadata(
             name=name,
             schema=schema,
@@ -115,7 +119,7 @@ class PostgresIntrospector(IntrospectorABC):
                     name=col["name"],
                     sql_type=str(col["type"]),
                     is_nullable=col["nullable"],
-                    is_primary_key=col.get("primary_key", False),
+                    is_pk=col.get("primary_key", False),
                     default_value=col.get("default"),
                     comment=col.get("comment"),
                     foreign_key=foreign_key,

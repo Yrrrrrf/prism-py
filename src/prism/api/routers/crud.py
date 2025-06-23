@@ -114,7 +114,7 @@ class CrudGenerator:
     def _create_pydantic_input_model(self, is_update: bool = False) -> Type[BaseModel]:
         fields = {}
         for col in self.table_meta.columns:
-            if col.is_primary_key or col.default_value is not None:
+            if col.is_pk or col.default_value is not None:
                 continue
             internal_type = get_python_type(col.sql_type, col.is_nullable)
             pydantic_type: Type = (

@@ -1,25 +1,11 @@
 # main.py
 import os
+
 from fastapi import FastAPI
 import uvicorn
 
-# --- Import from our new, refactored library structure ---
 from prism.db.client import DbClient
 from prism import ApiPrism
-from prism import config as prism_config
-# from prism import ui # For the welcome message
-
-# ==============================================================================
-#  Goal of this Script
-# ==============================================================================
-# This script serves as a "test harness" for the newly refactored prism-py.
-# It proves that the core data pipeline is working:
-# 1. Connect to the database using the new `DbClient`.
-# 2. Use the new `ApiPrism` to orchestrate introspection.
-# 3. Generate a simple `GET` endpoint for each discovered table.
-# 4. Serve the application with FastAPI and Uvicorn.
-# ==============================================================================
-
 
 # --- 1. Configuration ---
 # Load database credentials from the .env file

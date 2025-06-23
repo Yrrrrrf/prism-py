@@ -21,7 +21,7 @@ class ColumnMetadata:
     name: str
     sql_type: str
     is_nullable: bool
-    is_primary_key: bool
+    is_pk: bool
     default_value: Optional[str] = None
     comment: Optional[str] = None
     foreign_key: Optional[ColumnReference] = None

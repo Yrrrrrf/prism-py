@@ -1,4 +1,41 @@
 # """Database client for connecting to and managing database connections."""
+# src/prism/db/client.py
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import sessionmaker
+
+# You could also move the old DbConfig/PoolConfig dataclasses here if you want.
+# For now, we'll keep it simple.
+
+
+class DbClient:
+    """Manages the database connection engine and session creation."""
+
+    def __init__(self, db_url: str):
+        # echo=True is essential for debugging our first queries
+        self.engine: Engine = create_engine(db_url)
+        self.SessionLocal = sessionmaker(
+            autocommit=False, autoflush=False, bind=self.engine
+        )
+        print("✅ DbClient initialized and connected to the database.")
+
+    def get_db(self):
+        """FastAPI dependency to provide a database session per request."""
+        db = self.SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    def test_connection(self):
+        """Verifies that the connection to the database is alive."""
+        try:
+            with self.engine.connect() as connection:
+                print("✅ Database connection test successful.")
+        except Exception as e:
+            print(f"❌ Database connection test failed: {e}")
+            raise
+
 
 # import logging
 # from contextlib import contextmanager
@@ -245,39 +282,3 @@
 #             console.print(f"    {label:<12}{value}")
 
 #         console.print()  # Add a blank line for spacing
-# src/prism/db/client.py
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import sessionmaker
-
-# You could also move the old DbConfig/PoolConfig dataclasses here if you want.
-# For now, we'll keep it simple.
-
-
-class DbClient:
-    """Manages the database connection engine and session creation."""
-
-    def __init__(self, db_url: str):
-        # echo=True is essential for debugging our first queries
-        self.engine: Engine = create_engine(db_url, echo=True)
-        self.SessionLocal = sessionmaker(
-            autocommit=False, autoflush=False, bind=self.engine
-        )
-        print("✅ DbClient initialized and connected to the database.")
-
-    def get_db(self):
-        """FastAPI dependency to provide a database session per request."""
-        db = self.SessionLocal()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    def test_connection(self):
-        """Verifies that the connection to the database is alive."""
-        try:
-            with self.engine.connect() as connection:
-                print("✅ Database connection test successful.")
-        except Exception as e:
-            print(f"❌ Database connection test failed: {e}")
-            raise

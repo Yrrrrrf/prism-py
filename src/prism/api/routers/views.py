@@ -79,56 +79,7 @@ class ViewGenerator:
         )
         return f"""Retrieve records from view `{self.view_meta.name}`.\n\nSimple equality filters can be applied directly via the parameters below.\n\n### Advanced Filtering\nFor more complex queries, use the `field[operator]=value` syntax.\n\n- **Available Operators:** `{", ".join(f"`{op}`" for op in SQL_OPERATOR_MAP.keys())}`\n- **Example:** `?age[gte]=18&status[in]=active,pending`\n\n### Filterable Fields\n{fields_list}"""
 
-    # In src/prism/api/routers/views.py, inside the ViewGenerator class...
-
     def _add_read_route(self):
-        # We cannot use SQLAlchemy ORM here, so we build a raw query.
-        # The QueryBuilder logic needs a slight adaptation.
-        def read_resources(
-            db: Session = Depends(self.db_dependency),
-            query_params: Dict[str, Any] = Depends(get_query_params),
-        ) -> List[Any]:
-            # This is a placeholder model for the query builder to check field names.
-            class TempModel:
-                pass
-
-            for col in self.view_meta.columns:
-                setattr(TempModel, col.name, None)
-
-            # <<< START OF FIX >>>
-            # Pre-process parameters to convert simple filters like `?name=value`
-            # into the `?name[eq]=value` format that QueryBuilder expects.
-            processed_params = {}
-            for k, v in query_params.items():
-                if hasattr(TempModel, k):
-                    # This is a simple equality filter, so transform it.
-                    processed_params[f"{k}[eq]"] = v
-                else:
-                    # This is either an advanced filter (name[op]=v) or a reserved
-                    # keyword (limit, offset, etc.), so keep it as is.
-                    processed_params[k] = v
-            # <<< END OF FIX >>>
-
-            base_query = f"SELECT * FROM {self.view_meta.schema}.{self.view_meta.name}"
-
-            # The QueryBuilder doesn't build the query directly but gives us clauses
-            where_clause, order_clause, limit_clause, offset_clause, params = (
-                QueryBuilder(
-                    model=TempModel,
-                    params=processed_params,  # Use the pre-processed params!
-                ).build_clauses()
-            )
-
-            final_query = f"{base_query} {where_clause} {order_clause} {limit_clause} {offset_clause}"
-
-            # For debugging, it's great to see the final query
-            print(f"Executing View Query: {final_query} with params: {params}")
-
-            result = db.execute(text(final_query), params)
-            return result.mappings().all()
-
-        # We cannot use SQLAlchemy ORM here, so we build a raw query.
-        # The QueryBuilder logic needs a slight adaptation.
         def read_resources(
             db: Session = Depends(self.db_dependency),
             query_params: Dict[str, Any] = Depends(get_query_params),

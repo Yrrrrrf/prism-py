@@ -1,11 +1,12 @@
 # src/prism/prism.py
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, FastAPI
 from sqlalchemy.engine import Engine
 
-# Import all our generators
+# Import our new CacheManager
+from .cache import CacheManager
 from .api.routers.crud import CrudGenerator
 from .api.routers.functions import (
     FunctionGenerator,
@@ -29,72 +30,100 @@ class ApiPrism:
         self.app = app
         self.introspector = self._get_introspector(db_client.engine)
         self.routers: Dict[str, APIRouter] = {}
-        # Store all introspection results to avoid re-querying
-        self.db_metadata: Dict[str, Dict] = {}
+        # The cache manager is now a dedicated component
+        self.cache: Optional[CacheManager] = None
         self.start_time = datetime.now(timezone.utc)
-        self.schemas: List[str] = []  # Store schemas for cache clearing
 
     def _get_introspector(self, engine: Engine) -> IntrospectorABC:
         return PostgresIntrospector(engine)
 
     def _introspect_all(self, schemas: List[str]):
-        """Runs introspection for all specified schemas and caches the results."""
-        self.schemas = schemas  # Store for cache clearing
+        """Runs introspection and populates the cache manager."""
+        # Initialize our new cache manager
+        self.cache = CacheManager(schemas=schemas)
+
         console.rule("[bold cyan]Introspecting Database Schema")
         for schema in schemas:
             console.print(f"  Analysing schema: '[bold]{schema}[/]'")
-            self.db_metadata[schema] = {
-                "tables": self.introspector.get_tables(schema=schema),
-                # "views": self.introspector.get_views(schema=schema),
-                "enums": self.introspector.get_enums(schema=schema),
-                "functions": self.introspector.get_functions(schema=schema),
-                "procedures": self.introspector.get_procedures(schema=schema),
-                "triggers": self.introspector.get_triggers(schema=schema),
-            }
+
+            schema_cache = self.cache.get_schema(schema)
+            if not schema_cache:
+                continue  # Should not happen
+
+            # Populate the cache with discovered objects
+            db_tables = self.introspector.get_tables(schema=schema)
+            db_views = self.introspector.get_views(schema=schema)
+
+            schema_cache.tables = db_tables
+            schema_cache.views = db_views
+            schema_cache.enums = self.introspector.get_enums(schema=schema)
+            schema_cache.functions = self.introspector.get_functions(schema=schema)
+            schema_cache.procedures = self.introspector.get_procedures(schema=schema)
+            schema_cache.triggers = self.introspector.get_triggers(schema=schema)
+
         console.print("[bold green]✅ Introspection Complete.[/]\n")
+        # Log the stats from our new manager
+        self.cache.log_stats()
 
     def _get_or_create_router(self, schema: str, tag_suffix: str = "") -> APIRouter:
-        """Gets a router from the cache or creates a new one."""
         router_key = f"{schema}{tag_suffix}"
         if router_key not in self.routers:
-            tag = f"{schema.upper()}"
-            if tag_suffix:
-                tag += f" {tag_suffix}"
+            tag = f"{schema.upper()}{f' {tag_suffix}' if tag_suffix else ''}"
             self.routers[router_key] = APIRouter(prefix=f"/{schema}", tags=[tag])
         return self.routers[router_key]
 
-    def generate_table_and_view_routes(self, schemas: List[str]):
-        console.rule("[bold blue]Generating Table & View Routes")
+    def generate_table_routes(self, schemas: List[str]):
+        """Generates CRUD routes for all tables."""
+        if not self.cache:
+            return
+        console.rule("[bold blue]Generating Table Routes")
         for schema in schemas:
-            schema_meta = self.db_metadata.get(schema)
-            if not schema_meta:
+            schema_cache = self.cache.get_schema(schema)
+            if not schema_cache:
                 continue
+
             router = self._get_or_create_router(schema)
-            for item_meta in schema_meta["tables"]:
-                if item_meta.is_view:
-                    gen = ViewGenerator(
-                        view_metadata=item_meta,
-                        db_dependency=self.db_client.get_db,
-                        router=router,
-                    )
-                else:
-                    gen = CrudGenerator(
-                        table_metadata=item_meta,
-                        db_dependency=self.db_client.get_db,
-                        router=router,
-                        engine=self.db_client.engine,
-                    )
+            for table_meta in schema_cache.tables:
+                gen = CrudGenerator(
+                    table_metadata=table_meta,
+                    db_dependency=self.db_client.get_db,
+                    router=router,
+                    engine=self.db_client.engine,
+                )
+                gen.generate_routes()
+        console.print()
+
+    def generate_view_routes(self, schemas: List[str]):
+        """Generates read-only routes for all database views."""
+        if not self.cache:
+            return
+        console.rule("[bold green]Generating View Routes")
+        for schema in schemas:
+            schema_cache = self.cache.get_schema(schema)
+            if not schema_cache:
+                continue
+
+            router = self._get_or_create_router(schema)
+            for view_meta in schema_cache.views:
+                gen = ViewGenerator(
+                    view_metadata=view_meta,
+                    db_dependency=self.db_client.get_db,
+                    router=router,
+                )
                 gen.generate_routes()
         console.print()
 
     def generate_function_routes(self, schemas: List[str]):
+        """Generates POST routes for database functions."""
+        if not self.cache:
+            return
         console.rule("[bold magenta]Generating Function Routes")
         for schema in schemas:
-            schema_meta = self.db_metadata.get(schema)
-            if not schema_meta:
+            schema_cache = self.cache.get_schema(schema)
+            if not schema_cache:
                 continue
             router = self._get_or_create_router(schema)
-            for func_meta in schema_meta["functions"]:
+            for func_meta in schema_cache.functions:
                 gen = FunctionGenerator(
                     metadata=func_meta,
                     db_dependency=self.db_client.get_db,
@@ -104,13 +133,15 @@ class ApiPrism:
         console.print()
 
     def generate_procedure_routes(self, schemas: List[str]):
+        if not self.cache:
+            return
         console.rule("[bold yellow]Generating Procedure Routes")
         for schema in schemas:
-            schema_meta = self.db_metadata.get(schema)
-            if not schema_meta:
+            schema_cache = self.cache.get_schema(schema)
+            if not schema_cache:
                 continue
             router = self._get_or_create_router(schema)
-            for proc_meta in schema_meta["procedures"]:
+            for proc_meta in schema_cache.procedures:
                 gen = ProcedureGenerator(
                     metadata=proc_meta,
                     db_dependency=self.db_client.get_db,
@@ -120,30 +151,35 @@ class ApiPrism:
         console.print()
 
     def generate_trigger_routes(self, schemas: List[str]):
+        if not self.cache:
+            return
         console.rule("[bold orange1]Analysing Triggers")
         for schema in schemas:
-            schema_meta = self.db_metadata.get(schema)
-            if not schema_meta or not schema_meta["triggers"]:
+            schema_cache = self.cache.get_schema(schema)
+            if not schema_cache or not schema_cache.triggers:
                 console.print(
                     f"  [dim]No triggers found in schema '[bold]{schema}[/]'[/dim]"
                 )
                 continue
-            for trig_meta in schema_meta["triggers"]:
+            for trig_meta in schema_cache.triggers:
                 gen = TriggerGenerator(metadata=trig_meta)
                 gen.generate_routes()
         console.print()
 
     def generate_metadata_routes(self):
-        """Generates global routes for API metadata and schema discovery."""
+        if not self.cache:
+            return
         console.rule("[bold cyan]Generating Metadata Routes")
-        gen = MetadataGenerator(app=self.app, db_metadata=self.db_metadata)
+        # The MetadataGenerator will now need the CacheManager instance
+        gen = MetadataGenerator(app=self.app, cache_manager=self.cache)
         gen.generate_routes()
         console.print(
             "  [dim]Metadata endpoints registered under the `/dt` prefix.[/dim]\n"
         )
 
     def generate_health_routes(self):
-        """Generates global routes for API health and monitoring."""
+        if not self.cache:
+            return
         console.rule("[bold green]Generating Health Routes")
         # Pass the ApiPrism instance itself to the generator
         gen = HealthGenerator(app=self.app, prism_instance=self)
@@ -156,17 +192,15 @@ class ApiPrism:
         """Introspects the database and generates all available API routes."""
         self._introspect_all(schemas)
 
-        # Generate Global Routes first
         self.generate_metadata_routes()
         self.generate_health_routes()
 
-        # Generate Schema-Specific Routes
-        self.generate_table_and_view_routes(schemas)
+        self.generate_table_routes(schemas)
+        self.generate_view_routes(schemas)
         self.generate_function_routes(schemas)
         self.generate_procedure_routes(schemas)
         self.generate_trigger_routes(schemas)
 
-        # Register all the schema-specific routers with the app
         console.rule("[bold green]Registering Schema Routers")
         for key, router in self.routers.items():
             console.print(f"  Registering router: [dim]{key}[/dim]")
