@@ -4,9 +4,9 @@ prism-py: Generate FastAPI routes automatically from database schemas.
 
 from fastapi import FastAPI
 
-from prism.api import MetadataRouter
-from prism.db import DbClient, DbConfig, PoolConfig
-from prism.prism import ApiPrism, ModelManager, PrismConfig
+# from prism.api import MetadataRouter
+# from prism.db import DbClient, DbConfig, PoolConfig
+from prism.prism import ApiPrism
 
 __version__ = "0.0.5"
 
