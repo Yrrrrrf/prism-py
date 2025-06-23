@@ -54,7 +54,7 @@ class ProcedureGenerator(BaseCallableGenerator):
 
     def generate_routes(self):
         console.print(
-            f"  -> Generating PROC route for: [cyan]{self.meta.schema}.[bold yellow]{self.meta.name}[/]"
+            f"  -> Generating PROC route for: [cyan]{self.meta.schema}.[bold magenta]{self.meta.name}[/]"
         )
         display_function_structure(self.meta)
 
@@ -92,11 +92,20 @@ class FunctionGenerator(BaseCallableGenerator):
 
     def generate_routes(self):
         console.print(
-            f"  -> Generating FUNC route for: [cyan]{self.meta.schema}.[bold magenta]{self.meta.name}[/]"
+            f"  -> Generating FUNC route for: [cyan]{self.meta.schema}.[bold red]{self.meta.name}[/]"
         )
-        display_function_structure(self.meta)
 
-        output_model = self._create_output_model()
+        try:
+            output_model = self._create_output_model()
+        except ValueError as e:
+            # If we can't create an output model, we can't generate a route.
+            # Log a warning and skip this function.
+            console.print(
+                f"  🟡 Skipping function [bold magenta]{self.meta.name}[/]: Could not create output model. Reason: {e}"
+            )
+            return
+
+        display_function_structure(self.meta)
 
         def execute_function(
             params: self.input_model = Depends(),
@@ -134,19 +143,31 @@ class FunctionGenerator(BaseCallableGenerator):
         """Dynamically creates a Pydantic model for the function's return type."""
         fields = {}
         if self.meta.type == FunctionType.SCALAR:
-            # For scalar, we wrap the result in a simple model for consistency in response structure
+            # For scalar, we can just return the raw type for the response model
             return_type = get_python_type(self.meta.return_type, nullable=True)
-            fields["result"] = (return_type, None)
+            return return_type
         else:  # TABLE or SET_RETURNING
             # Parse 'TABLE(col1 type1, col2 type2)'
-            columns_str = re.search(r"\((.*?)\)", self.meta.return_type)
-            if not columns_str:
+            columns_str_match = re.search(r"\((.*?)\)", self.meta.return_type)
+            if not columns_str_match:
                 raise ValueError(
-                    f"Could not parse TABLE return type for {self.meta.name}: {self.meta.return_type}"
+                    f"Return type '{self.meta.return_type}' is not a parseable TABLE type"
                 )
 
-            for column in columns_str.group(1).split(","):
-                col_name, col_type = column.strip().split(maxsplit=1)
+            columns_str = columns_str_match.group(1)
+            if not columns_str.strip():
+                raise ValueError(
+                    f"Return type '{self.meta.return_type}' is a TABLE type with no columns defined."
+                )
+
+            for column in columns_str.split(","):
+                # Handle cases with or without explicit names like 'col_name int' vs 'int'
+                parts = column.strip().split()
+                if len(parts) >= 2:
+                    col_name, col_type = parts[0], " ".join(parts[1:])
+                else:
+                    col_name, col_type = f"column_{len(fields)}", parts[0]
+
                 py_type = get_python_type(col_type, nullable=True)
                 fields[col_name] = (py_type, None)
 

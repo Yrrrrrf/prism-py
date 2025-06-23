@@ -7,15 +7,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from prism.api.routers import gen_openapi_parameters
-
 from prism.core.models.tables import TableMetadata
 from prism.core.query.builder import QueryBuilder
 from prism.core.query.operators import SQL_OPERATOR_MAP
-from prism.core.types.utils import (
-    ArrayType,
-    JSONBType,
-    get_python_type,
-)
+from prism.core.types.utils import ArrayType, JSONBType, get_python_type
+from prism.ui import console, display_table_structure
 
 
 def get_query_params(request: Request) -> Dict[str, Any]:
@@ -37,10 +33,9 @@ class ViewGenerator:
         self.pydantic_read_model = self._create_pydantic_read_model()
 
     def generate_routes(self):
+        """Generates the read-only route and logs the view's structure."""
+        display_table_structure(self.view_meta)
         self._add_read_route()
-        print(
-            f"  ✓ Generated READ route for view {self.view_meta.schema}.{self.view_meta.name}"
-        )
 
     def _create_pydantic_read_model(self) -> Type[BaseModel]:
         fields = {}
@@ -69,7 +64,6 @@ class ViewGenerator:
         )
 
     def _generate_endpoint_description(self) -> str:
-        # This is also identical to the CrudGenerator's implementation
         fields_list = "\n".join(
             f"- `{col.name}`"
             for col in self.view_meta.columns
@@ -84,25 +78,28 @@ class ViewGenerator:
             db: Session = Depends(self.db_dependency),
             query_params: Dict[str, Any] = Depends(get_query_params),
         ) -> List[Any]:
-            # This is a placeholder model for the query builder to check field names.
             class TempModel:
                 pass
 
             for col in self.view_meta.columns:
                 setattr(TempModel, col.name, None)
 
+            processed_params = {
+                f"{k}[eq]" if hasattr(TempModel, k) else k: v
+                for k, v in query_params.items()
+            }
             base_query = f"SELECT * FROM {self.view_meta.schema}.{self.view_meta.name}"
-
-            # The QueryBuilder doesn't build the query directly but gives us clauses
             where_clause, order_clause, limit_clause, offset_clause, params = (
-                QueryBuilder(model=TempModel, params=query_params).build_clauses()
-            )  # We will need to add this method to QueryBuilder
-
+                QueryBuilder(
+                    model=TempModel,
+                    params=processed_params,
+                ).build_clauses()
+            )
             final_query = f"{base_query} {where_clause} {order_clause} {limit_clause} {offset_clause}"
-
             result = db.execute(text(final_query), params)
             return result.mappings().all()
 
+        read_resources.__name__ = f"read_view_{self.view_meta.name}"
         self.router.add_api_route(
             path=f"/{self.view_meta.name}",
             endpoint=read_resources,

@@ -7,15 +7,11 @@ from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
 
 from prism.api.routers import gen_openapi_parameters
-
 from prism.core.models.tables import TableMetadata
 from prism.core.query.builder import QueryBuilder
 from prism.core.query.operators import SQL_OPERATOR_MAP
-from prism.core.types.utils import (
-    ArrayType,
-    JSONBType,
-    get_python_type,
-)
+from prism.core.types.utils import ArrayType, JSONBType, get_python_type
+from prism.ui import console, display_table_structure
 
 
 def get_query_params(request: Request) -> Dict[str, Any]:
@@ -58,15 +54,12 @@ class CrudGenerator:
         if not self.sqlalchemy_model or not self.pydantic_read_model:
             return
 
+        display_table_structure(self.table_meta)
         self._add_read_route()
         self._add_create_route()
         self._add_update_route()
         self._add_patch_route()
         self._add_delete_route()
-
-        print(
-            f"  ✓ Generated FULL CRUD+PATCH routes for {self.table_meta.schema}.{self.table_meta.name}"
-        )
 
     def _get_sqlalchemy_model(self) -> Optional[Type]:
         Base = automap_base()
@@ -74,14 +67,14 @@ class CrudGenerator:
             Base.prepare(self.engine, reflect=True, schema=self.table_meta.schema)
             model_class = getattr(Base.classes, self.table_meta.name, None)
             if model_class is None:
-                print(
-                    f"  🟡 Skipping table {self.table_meta.schema}.{self.table_meta.name}: Could not automap. (Likely missing a primary key)."
+                console.print(
+                    f"  🟡 Skipping table {self.table_meta.schema}.{self.table_meta.name}: [bold yellow]Could not automap. (Likely missing a primary key).[/]\n"
                 )
                 return None
             return model_class
         except Exception as e:
-            print(
-                f"  ❌ Skipping table {self.table_meta.schema}.{self.table_meta.name}: An unexpected error occurred during automap: {e}"
+            console.print(
+                f"  ❌ Skipping table {self.table_meta.schema}.{self.table_meta.name}: [bold red]An unexpected error occurred during automap: {e}[/]\n"
             )
             return None
 
@@ -170,6 +163,7 @@ class CrudGenerator:
             query = builder.build(initial_query)
             return query.all()
 
+        read_resources.__name__ = f"read_{self.table_meta.name}"
         self.router.add_api_route(
             path=f"/{self.table_meta.name}",
             endpoint=read_resources,
@@ -181,12 +175,6 @@ class CrudGenerator:
         )
 
     def _add_create_route(self):
-        @self.router.post(
-            f"/{self.table_meta.name}",
-            response_model=self.pydantic_read_model,
-            status_code=201,
-            summary=f"Create a new {self.table_meta.name} record",
-        )
         def create_resource(
             resource_data: self.pydantic_create_model,
             db: Session = Depends(self.db_dependency),
@@ -203,6 +191,14 @@ class CrudGenerator:
                     status_code=400, detail=f"Failed to create record: {e}"
                 )
 
+        create_resource.__name__ = f"create_{self.table_meta.name}"
+        self.router.post(
+            f"/{self.table_meta.name}",
+            response_model=self.pydantic_read_model,
+            status_code=201,
+            summary=f"Create a new {self.table_meta.name} record",
+        )(create_resource)
+
     def _add_update_route(self):
         if not self.table_meta.primary_key_columns:
             return
@@ -210,11 +206,6 @@ class CrudGenerator:
         pk_col = next(c for c in self.table_meta.columns if c.name == pk_col_name)
         pk_type = get_python_type(pk_col.sql_type, nullable=False)
 
-        @self.router.put(
-            f"/{self.table_meta.name}/{{{pk_col_name}}}",
-            response_model=self.pydantic_read_model,
-            summary=f"Update a {self.table_meta.name} record by its primary key",
-        )
         def update_resource(
             pk_value: pk_type,
             resource_data: self.pydantic_partial_update_model,
@@ -242,6 +233,13 @@ class CrudGenerator:
                     status_code=400, detail=f"Failed to update record: {e}"
                 )
 
+        update_resource.__name__ = f"update_{self.table_meta.name}"
+        self.router.put(
+            f"/{self.table_meta.name}/{{{pk_col_name}}}",
+            response_model=self.pydantic_read_model,
+            summary=f"Update a {self.table_meta.name} record by its primary key",
+        )(update_resource)
+
     def _add_patch_route(self):
         if not self.table_meta.primary_key_columns:
             return
@@ -249,11 +247,6 @@ class CrudGenerator:
         pk_col = next(c for c in self.table_meta.columns if c.name == pk_col_name)
         pk_type = get_python_type(pk_col.sql_type, nullable=False)
 
-        @self.router.patch(
-            f"/{self.table_meta.name}/{{{pk_col_name}}}",
-            response_model=self.pydantic_read_model,
-            summary=f"Partially update a {self.table_meta.name} record",
-        )
         def patch_resource(
             pk_value: pk_type,
             resource_data: self.pydantic_partial_update_model,
@@ -287,6 +280,13 @@ class CrudGenerator:
                     status_code=400, detail=f"Failed to update record: {e}"
                 )
 
+        patch_resource.__name__ = f"patch_{self.table_meta.name}"
+        self.router.patch(
+            f"/{self.table_meta.name}/{{{pk_col_name}}}",
+            response_model=self.pydantic_read_model,
+            summary=f"Partially update a {self.table_meta.name} record",
+        )(patch_resource)
+
     def _add_delete_route(self):
         if not self.table_meta.primary_key_columns:
             return
@@ -294,11 +294,6 @@ class CrudGenerator:
         pk_col = next(c for c in self.table_meta.columns if c.name == pk_col_name)
         pk_type = get_python_type(pk_col.sql_type, nullable=False)
 
-        @self.router.delete(
-            f"/{self.table_meta.name}/{{{pk_col_name}}}",
-            status_code=204,
-            summary=f"Delete a {self.table_meta.name} record by its primary key",
-        )
         def delete_resource(
             pk_value: pk_type, db: Session = Depends(self.db_dependency)
         ):
@@ -320,3 +315,10 @@ class CrudGenerator:
                 raise HTTPException(
                     status_code=400, detail=f"Failed to delete record: {e}"
                 )
+
+        delete_resource.__name__ = f"delete_{self.table_meta.name}"
+        self.router.delete(
+            f"/{self.table_meta.name}/{{{pk_col_name}}}",
+            status_code=204,
+            summary=f"Delete a {self.table_meta.name} record by its primary key",
+        )(delete_resource)

@@ -135,6 +135,17 @@ class MetadataGenerator:
             return [_build_api_table(v) for v in _get_schema_cache_or_404(schema).views]
 
         @self.router.get(
+            "/{schema}/enums",
+            response_model=List[ApiEnumMetadata],
+            summary="List all enums in a schema",
+        )
+        def get_enums(schema: str) -> List[ApiEnumMetadata]:
+            return [
+                ApiEnumMetadata(**e.__dict__)
+                for e in _get_schema_cache_or_404(schema).enums.values()
+            ]
+
+        @self.router.get(
             "/{schema}/functions",
             response_model=List[ApiFunctionMetadata],
             summary="List all functions in a schema",
@@ -165,17 +176,6 @@ class MetadataGenerator:
             return [
                 _build_api_function(t)
                 for t in _get_schema_cache_or_404(schema).triggers
-            ]
-
-        @self.router.get(
-            "/{schema}/enums",
-            response_model=List[ApiEnumMetadata],
-            summary="List all enums in a schema",
-        )
-        def get_enums(schema: str) -> List[ApiEnumMetadata]:
-            return [
-                ApiEnumMetadata(**e.__dict__)
-                for e in _get_schema_cache_or_404(schema).enums.values()
             ]
 
         # Finally, register the router with all its endpoints to the app

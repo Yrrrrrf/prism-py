@@ -9,7 +9,10 @@ from pydantic import BaseModel, Field
 class ApiColumnReference(BaseModel):
     """Represents a foreign key reference."""
 
-    schema: str
+    # =================== THE FIX ===================
+    # Use `schema_name` as the field and alias it to "schema".
+    schema_name: str = Field(alias="schema")
+    # ===============================================
     table: str
     column: str
 
@@ -22,7 +25,6 @@ class ApiColumnMetadata(BaseModel):
     nullable: bool
     is_pk: bool
     is_enum: bool
-    # A simple field doesn't need a default_factory for None
     references: Optional[ApiColumnReference] = None
 
 
@@ -30,8 +32,9 @@ class ApiTableMetadata(BaseModel):
     """Public representation of a database table or view."""
 
     name: str
-    schema: str
-    # Use default_factory for mutable list
+    # =================== THE FIX ===================
+    schema_name: str = Field(alias="schema")
+    # ===============================================
     columns: List[ApiColumnMetadata] = Field(default_factory=list)
 
 
@@ -39,7 +42,9 @@ class ApiEnumMetadata(BaseModel):
     """Public representation of a database enum."""
 
     name: str
-    schema: str
+    # =================== THE FIX ===================
+    schema_name: str = Field(alias="schema")
+    # ===============================================
     values: List[str] = Field(default_factory=list)
 
 
@@ -55,7 +60,9 @@ class ApiFunctionMetadata(BaseModel):
     """Public representation of a database function or procedure."""
 
     name: str
-    schema: str
+    # =================== THE FIX ===================
+    schema_name: str = Field(alias="schema")
+    # ===============================================
     return_type: str
     parameters: List[ApiFunctionParameter] = Field(default_factory=list)
 
@@ -63,8 +70,8 @@ class ApiFunctionMetadata(BaseModel):
 class ApiSchemaMetadata(BaseModel):
     """The main response model for the /dt/schemas endpoint. A complete map of a schema."""
 
+    # This one is already correct, its field is `name`, not `schema`.
     name: str
-    # --- THIS IS THE FIX: Use default_factory for all mutable collections ---
     tables: Dict[str, ApiTableMetadata] = Field(default_factory=dict)
     views: Dict[str, ApiTableMetadata] = Field(default_factory=dict)
     enums: Dict[str, ApiEnumMetadata] = Field(default_factory=dict)

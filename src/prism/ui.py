@@ -11,6 +11,7 @@ from rich.text import Text
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy import Table as SQLTable
 
+from prism.core.models.tables import TableMetadata
 from prism.core.types.utils import JSONBType, get_python_type
 
 # --- Global Console ---
@@ -36,58 +37,49 @@ def _get_base_type(type_: Any) -> str:
 
 
 # --- UI Display Functions ---
+def display_table_structure(table_meta: TableMetadata) -> None:
+    """Prints detailed table/view structure from TableMetadata."""
+    console.print(f"  [cyan]{table_meta.schema}[/].[cyan bold]{table_meta.name}[/]:")
 
+    for column in table_meta.columns:
+        name_str = f"    {column.name:<24}"
+        nullable_str = "[red]*[/]" if not column.is_nullable else " "
 
-def display_table_structure(table: SQLTable) -> None:
-    """Prints detailed table structure with precise manual formatting."""
+        # 1. Use the now-correct sql_type from ColumnMetadata
+        sql_type_str = f"{str(column.sql_type):<20}"
 
-    for column in table.columns:
-        # --- Column 1 & 2: Name and Nullable Marker ---
-        name_str = f"    {column.name:<24}"  # 4 spaces for indentation + 24 for name
-        nullable_str = "[red]*[/]" if not column.nullable else " "
+        # 2. Get the equivalent Python type
+        py_type = get_python_type(str(column.sql_type), nullable=column.is_nullable)
 
-        # --- Column 3: SQL Type ---
-        sql_type_str = f"{str(column.type):<20}"  # Padded SQL type
-
-        # --- Column 4: Python Type ---
-        py_type = get_python_type(str(column.type), nullable=column.nullable)
+        # 3. Use the reliable `column.enum_info` to get the Python type name for display
         if isinstance(py_type, JSONBType):
             python_type_str = f"{'JSONB':<15}"
-        elif isinstance(column.type, SQLAlchemyEnum):
-            # Use the actual name of the enum type
-            python_type_str = f"{column.type.name:<15}"
+        elif column.enum_info:
+            python_type_str = (
+                f"[/][bold yellow]{column.enum_info.name:<15}"  # Display enum name
+            )
         else:
             python_type_str = f"{_get_base_type(py_type):<15}"
 
         python_type_str = f"[violet]{python_type_str}[/]"
 
-        # --- Column 5: Flags (PK, FK, Enum values) ---
+        # 4. Build the flags based on the reliable data
         flags = []
-        if column.primary_key:
+        if column.is_pk:
             flags.append("[green]PK[/]")
-        if column.foreign_keys:
-            fk = next(iter(column.foreign_keys))
+        if column.foreign_key:
+            fk = column.foreign_key
+            flags.append(f"[cyan]FK -> {fk.schema}.[bold]{fk.table}[/bold][/]")
+        if column.enum_info:
             flags.append(
-                f"[cyan]FK -> {fk.column.table.schema}.[bold]{fk.column.table.name}[/bold][/]"
+                f"[yellow dim]({', '.join(map(str, column.enum_info.values))})[/]"
             )
-        if isinstance(column.type, SQLAlchemyEnum):
-            flags.append(f"[yellow dim]({', '.join(map(str, column.type.enums))})[/]")
 
         flags_str = " ".join(flags)
 
-        # --- Assemble and Print the Line ---
-        # The spacing is now manually controlled by the f-string padding.
-        # Example: `name` `*` `sql_type` `py_type` `flags`
-        line = (
-            f"{name_str}"
-            f"{nullable_str} "
-            f"[dim]{sql_type_str}[/] "
-            f"{python_type_str} "
-            f"{flags_str}"
-        )
+        line = f"{name_str}{nullable_str} [dim]{sql_type_str}[/] {python_type_str} {flags_str}"
         console.print(line)
-
-    console.print()  # Add a blank line after the structure for spacing
+    console.print()
 
 
 def display_function_structure(fn_metadata: Any) -> None:
@@ -140,7 +132,7 @@ def _get_operation_id(path: str, name: str, method: str) -> str:
 
 
 def display_route_links(
-    db_client: "DbClient",  # type: ignore
+    db_client: "DbClient",
     title: str,
     tag: str,
     endpoints: Dict[str, tuple[str, str, str]],
@@ -156,7 +148,8 @@ def display_route_links(
         endpoints: A dictionary of {description: (path_suffix, function_name, http_method)}.
         port: The server port.
     """
-    host = db_client.config.host
+    # Get host directly from the engine's URL
+    host = db_client.engine.url.host or "127.0.0.1"
     docs_base_url = f"http://{host}:{port}/docs"
     tag_link = f"{docs_base_url}#/{tag}"
 
@@ -165,7 +158,6 @@ def display_route_links(
             f"  [bold]{title} available.[/] Main Docs: [link={tag_link}]{tag}[/link]"
         )
     )
-    console.print()
 
     for description, (path, func_name, method) in endpoints.items():
         operation_id = _get_operation_id(path, func_name, method)
@@ -173,9 +165,10 @@ def display_route_links(
 
         console.print(
             Text.from_markup(
-                f"\t{description:<25} [link={full_docs_link}][dim]({method.upper()} {path})[/dim][/link]"
+                f"    {description:<25} [link={full_docs_link}][dim]({method.upper()} {path})[/dim][/link]"
             )
         )
+    console.print()
 
 
 def print_welcome(project_name: str, version: str, host: str, port: int) -> None:

@@ -1,5 +1,5 @@
 # src/prism/core/introspection/postgres.py
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
@@ -20,7 +20,6 @@ def _parse_parameters(args_str: str) -> List[FunctionParameter]:
     if not args_str:
         return []
     parameters = []
-    # This is a simplified parser; it might not handle all edge cases.
     for arg in args_str.split(", "):
         parts = arg.strip().split()
         if not parts:
@@ -58,53 +57,111 @@ class PostgresIntrospector(IntrospectorABC):
     def __init__(self, engine: Engine):
         self.engine = engine
         self.inspector = inspect(engine)
+        self._all_enums_cache: Dict[str, EnumInfo] | None = None
+        self._column_type_map_cache: Dict[str, Dict[Tuple[str, str], str]] = {}
 
-    # --- get_schemas, get_tables, _get_columns, get_enums remain unchanged ---
+    def _get_column_true_types(self, schema: str) -> Dict[Tuple[str, str], str]:
+        """
+        Gets the true user-defined type name for each column in a schema,
+        bypassing SQLAlchemy's type string representation which can be misleading.
+        Returns a map of {(table_name, column_name): true_type_name}.
+        """
+        if schema in self._column_type_map_cache:
+            return self._column_type_map_cache[schema]
+
+        query = text(
+            """
+            SELECT
+                c.relname AS table_name,
+                a.attname AS column_name,
+                t.typname AS type_name
+            FROM
+                pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_attribute a ON a.attrelid = c.oid
+                JOIN pg_type t ON t.oid = a.atttypid
+            WHERE
+                n.nspname = :schema
+                AND a.attnum > 0
+                AND NOT a.attisdropped;
+            """
+        )
+        type_map: Dict[Tuple[str, str], str] = {}
+        with self.engine.connect() as connection:
+            result = connection.execute(query, {"schema": schema})
+            for row in result:
+                type_map[(row.table_name, row.column_name)] = row.type_name
+
+        self._column_type_map_cache[schema] = type_map
+        return type_map
+
+    def _get_all_enums(self) -> Dict[str, EnumInfo]:
+        """Fetches all user-defined enums across all schemas and caches the result."""
+        if self._all_enums_cache is not None:
+            return self._all_enums_cache
+
+        query = text(
+            """
+            SELECT n.nspname AS schema, t.typname AS name,
+                   array_agg(e.enumlabel ORDER BY e.enumsortorder) AS values
+            FROM pg_type t
+            JOIN pg_enum e ON t.oid = e.enumtypid
+            JOIN pg_namespace n ON t.typnamespace = n.oid
+            WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+              AND t.typtype = 'e'
+              AND NOT EXISTS (
+                  SELECT 1 FROM pg_depend dep JOIN pg_extension ext ON dep.refobjid = ext.oid
+                  WHERE dep.objid = t.oid
+              )
+            GROUP BY n.nspname, t.typname;
+            """
+        )
+        enums_map: Dict[str, EnumInfo] = {}
+        with self.engine.connect() as connection:
+            result = connection.execute(query)
+            for row in result:
+                qualified_name = f"{row.schema}.{row.name}"
+                enums_map[qualified_name] = EnumInfo(
+                    name=row.name, schema=row.schema, values=row.values
+                )
+        self._all_enums_cache = enums_map
+        return self._all_enums_cache
+
     def get_schemas(self) -> List[str]:
-        return self.inspector.get_schema_names()
+        """Returns a list of all user-defined schema names, excluding system schemas."""
+        all_schemas = self.inspector.get_schema_names()
+        SYSTEM_SCHEMAS_TO_EXCLUDE = {
+            "information_schema",
+            "pg_catalog",
+            "pg_toast",
+        }
+        return [s for s in all_schemas if s not in SYSTEM_SCHEMAS_TO_EXCLUDE]
+
+    def get_enums(self, schema: str) -> Dict[str, EnumInfo]:
+        """Returns enum definitions for a specific schema by filtering the global map."""
+        all_enums = self._get_all_enums()
+        return {
+            info.name: info
+            for qualified_name, info in all_enums.items()
+            if info.schema == schema
+        }
 
     def _create_table_metadata(
-        self, schema: str, name: str, is_view: bool
+        self, schema: str, name: str, is_view: bool, all_enums_map: Dict[str, EnumInfo]
     ) -> TableMetadata:
         """Private helper to build a TableMetadata object for a table or view."""
-        columns = self._get_columns(schema, name)
-        # Views don't have primary keys, so this will correctly return an empty list
-        pks = self.inspector.get_pk_constraint(name, schema).get(
-            "constrained_columns", []
-        )
-        comment = self.inspector.get_table_comment(name, schema).get("text")
+        column_true_types = self._get_column_true_types(schema)
 
-        return TableMetadata(
-            name=name,
-            schema=schema,
-            columns=columns,
-            primary_key_columns=pks,
-            is_view=is_view,
-            comment=comment,
-        )
-
-    def get_tables(self, schema: str) -> List[TableMetadata]:
-        """Returns metadata for all tables (excluding views) in a given schema."""
-        table_names = self.inspector.get_table_names(schema=schema)
-        return [
-            self._create_table_metadata(schema, name, is_view=False)
-            for name in table_names
-        ]
-
-    def get_views(self, schema: str) -> List[TableMetadata]:
-        """Returns metadata for all views in a given schema."""
-        view_names = self.inspector.get_view_names(schema=schema)
-        return [
-            self._create_table_metadata(schema, name, is_view=True)
-            for name in view_names
-        ]
-
-    def _get_columns(self, schema: str, table_name: str) -> List[ColumnMetadata]:
-        column_data = self.inspector.get_columns(table_name, schema)
-        fks = self.inspector.get_foreign_keys(table_name, schema)
+        pk_constraint = self.inspector.get_pk_constraint(name, schema)
+        pk_column_names = pk_constraint.get("constrained_columns", [])
+        column_data = self.inspector.get_columns(name, schema)
+        fks = self.inspector.get_foreign_keys(name, schema)
         fk_map = {item["constrained_columns"][0]: item for item in fks}
+
         columns = []
         for col in column_data:
+            is_primary_key = col["name"] in pk_column_names
+
             foreign_key = None
             if col["name"] in fk_map:
                 fk_info = fk_map[col["name"]]
@@ -114,29 +171,58 @@ class PostgresIntrospector(IntrospectorABC):
                 foreign_key = ColumnReference(
                     schema=ref_schema, table=ref_table, column=ref_column
                 )
+
+            true_type_name = column_true_types.get(
+                (name, col["name"]), str(col["type"])
+            )
+            enum_info = all_enums_map.get(f"{schema}.{true_type_name}")
+
+            final_sql_type = enum_info.name if enum_info else true_type_name
+
             columns.append(
                 ColumnMetadata(
                     name=col["name"],
-                    sql_type=str(col["type"]),
+                    sql_type=final_sql_type,
                     is_nullable=col["nullable"],
-                    is_pk=col.get("primary_key", False),
+                    is_pk=is_primary_key,
                     default_value=col.get("default"),
                     comment=col.get("comment"),
                     foreign_key=foreign_key,
+                    enum_info=enum_info,
                 )
             )
-        return columns
 
-    def get_enums(self, schema: str) -> Dict[str, EnumInfo]:
-        query = text(
-            "SELECT t.typname AS name, array_agg(e.enumlabel ORDER BY e.enumsortorder) AS values FROM pg_type t JOIN pg_enum e ON t.oid = e.enumtypid JOIN pg_namespace n ON t.typnamespace = n.oid WHERE n.nspname = :schema AND t.typtype = 'e' GROUP BY t.typname;"
+        comment = self.inspector.get_table_comment(name, schema).get("text")
+        return TableMetadata(
+            name=name,
+            schema=schema,
+            columns=columns,
+            primary_key_columns=pk_column_names,
+            is_view=is_view,
+            comment=comment,
         )
-        with self.engine.connect() as connection:
-            result = connection.execute(query, {"schema": schema})
-            return {
-                row.name: EnumInfo(name=row.name, schema=schema, values=row.values)
-                for row in result
-            }
+
+    def get_tables(self, schema: str) -> List[TableMetadata]:
+        """Returns metadata for all tables in a given schema."""
+        table_names = self.inspector.get_table_names(schema=schema)
+        all_enums = self._get_all_enums()
+        return [
+            self._create_table_metadata(
+                schema, name, is_view=False, all_enums_map=all_enums
+            )
+            for name in table_names
+        ]
+
+    def get_views(self, schema: str) -> List[TableMetadata]:
+        """Returns metadata for all views in a given schema."""
+        view_names = self.inspector.get_view_names(schema=schema)
+        all_enums = self._get_all_enums()
+        return [
+            self._create_table_metadata(
+                schema, name, is_view=True, all_enums_map=all_enums
+            )
+            for name in view_names
+        ]
 
     def _fetch_callable_metadata(
         self, schema: str, kind_filter: str
@@ -148,6 +234,7 @@ class PostgresIntrospector(IntrospectorABC):
                     p.oid, n.nspname AS schema, p.proname AS name,
                     pg_get_function_identity_arguments(p.oid) AS arguments,
                     COALESCE(pg_get_function_result(p.oid), 'void') AS return_type,
+                    p.prorettype,
                     p.proretset AS returns_set, p.prokind AS kind, d.description
                 FROM pg_proc p
                 JOIN pg_namespace n ON p.pronamespace = n.oid
@@ -157,7 +244,13 @@ class PostgresIntrospector(IntrospectorABC):
                     WHERE dep.objid = p.oid
                 )
             )
-            SELECT * FROM func_info ORDER BY name;
+            SELECT * FROM func_info
+            WHERE prorettype NOT IN (
+                'anyelement'::regtype, 'anyarray'::regtype, 'anynonarray'::regtype,
+                'anyenum'::regtype, 'anyrange'::regtype, 'record'::regtype,
+                'trigger'::regtype, 'event_trigger'::regtype, 'internal'::regtype
+            )
+            ORDER BY name;
         """)
         results = []
         with self.engine.connect() as connection:
@@ -165,8 +258,6 @@ class PostgresIntrospector(IntrospectorABC):
             for row in rows:
                 if row["kind"] == "p":
                     obj_type, func_type = ObjectType.PROCEDURE, FunctionType.SCALAR
-                elif row["return_type"] == "trigger":
-                    obj_type, func_type = ObjectType.TRIGGER, FunctionType.SCALAR
                 else:
                     obj_type = ObjectType.FUNCTION
                     func_type = (
@@ -194,17 +285,75 @@ class PostgresIntrospector(IntrospectorABC):
 
     def get_functions(self, schema: str) -> List[FunctionMetadata]:
         """Returns metadata for all functions, excluding procedures and triggers."""
+        # The filter `prorettype != 'void'::regtype` is added to exclude procedures.
         return self._fetch_callable_metadata(
             schema,
-            "p.prokind IN ('f', 'a', 'w') AND p.prorettype != 'trigger'::regtype::oid",
+            "p.prokind IN ('f', 'a', 'w') AND p.prorettype != 'void'::regtype",
         )
 
     def get_procedures(self, schema: str) -> List[FunctionMetadata]:
         """Returns metadata for all procedures."""
-        return self._fetch_callable_metadata(schema, "p.prokind = 'p'")
+        query = text("""
+            SELECT
+                n.nspname AS schema, p.proname AS name,
+                pg_get_function_identity_arguments(p.oid) AS arguments,
+                d.description
+            FROM pg_proc p
+            JOIN pg_namespace n ON p.pronamespace = n.oid
+            LEFT JOIN pg_description d ON p.oid = d.objoid
+            WHERE n.nspname = :schema AND p.prokind = 'p' AND NOT EXISTS (
+                SELECT 1 FROM pg_depend dep JOIN pg_extension ext ON dep.refobjid = ext.oid
+                WHERE dep.objid = p.oid
+            )
+            ORDER BY name;
+        """)
+        results = []
+        with self.engine.connect() as connection:
+            rows = connection.execute(query, {"schema": schema}).mappings().all()
+            for row in rows:
+                results.append(
+                    FunctionMetadata(
+                        schema=row["schema"],
+                        name=row["name"],
+                        return_type="void",
+                        parameters=_parse_parameters(row["arguments"]),
+                        type=FunctionType.SCALAR,
+                        object_type=ObjectType.PROCEDURE,
+                        description=row["description"],
+                    )
+                )
+        return results
 
     def get_triggers(self, schema: str) -> List[FunctionMetadata]:
         """Returns metadata for all trigger functions."""
-        return self._fetch_callable_metadata(
-            schema, "p.prorettype = 'trigger'::regtype::oid"
-        )
+        query = text("""
+            SELECT
+                n.nspname AS schema, p.proname AS name,
+                pg_get_function_identity_arguments(p.oid) AS arguments,
+                d.description
+            FROM pg_proc p
+            JOIN pg_namespace n ON p.pronamespace = n.oid
+            LEFT JOIN pg_description d ON p.oid = d.objoid
+            WHERE n.nspname = :schema AND p.prorettype = 'trigger'::regtype::oid
+            AND NOT EXISTS (
+                SELECT 1 FROM pg_depend dep JOIN pg_extension ext ON dep.refobjid = ext.oid
+                WHERE dep.objid = p.oid
+            )
+            ORDER BY name;
+        """)
+        results = []
+        with self.engine.connect() as connection:
+            rows = connection.execute(query, {"schema": schema}).mappings().all()
+            for row in rows:
+                results.append(
+                    FunctionMetadata(
+                        schema=row["schema"],
+                        name=row["name"],
+                        return_type="trigger",
+                        parameters=_parse_parameters(row["arguments"]),
+                        type=FunctionType.SCALAR,
+                        object_type=ObjectType.TRIGGER,
+                        description=row["description"],
+                    )
+                )
+        return results
