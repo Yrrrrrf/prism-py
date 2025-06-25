@@ -2,10 +2,10 @@
 from dataclasses import dataclass, field
 from typing import Dict, List
 
-from .core.models.enums import EnumInfo
-from .core.models.functions import FunctionMetadata
-from .core.models.tables import TableMetadata
-from .ui import console, Table
+from prism.core.models.enums import EnumInfo
+from prism.core.models.functions import FunctionMetadata
+from prism.core.models.tables import TableMetadata
+from prism.ui import console, Table
 
 
 @dataclass
@@ -40,12 +40,12 @@ class CacheManager:
 
     def log_stats(self):
         """Prints a rich summary table of all cached objects."""
-        console.rule("[bold]CacheManager Statistics")
+        console.rule("[bold]CacheManager Statistics", style="bold white")
         table = Table(header_style="bold", show_footer=True, box=None)
         table.add_column("Schema", style="cyan", no_wrap=True, footer="[bold]TOTAL[/]")
         table.add_column("Tables", style="blue", justify="right")
         table.add_column("Views", style="green", justify="right")
-        table.add_column("Enums", style="magenta", justify="right")
+        table.add_column("Enums", style="yellow", justify="right")
         table.add_column("Functions", style="red", justify="right")
         table.add_column("Procedures", style="yellow", justify="right")
         table.add_column("Triggers", style="orange1", justify="right")

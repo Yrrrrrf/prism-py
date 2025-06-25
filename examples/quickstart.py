@@ -1,30 +1,34 @@
 # examples/quickstart.py
-import os
 import uvicorn
 from fastapi import FastAPI
 from prism.db.client import DbClient
 from prism.prism import ApiPrism
 
 # 1. Load Database Configuration from Environment
-db_url = os.getenv(
-    "DATABASE_URL", "postgresql://a_hub_admin:password@localhost:5432/a_hub"
-)
-if not db_url:
-    raise ValueError("DATABASE_URL environment variable is not set.")
+db_url = "postgresql://a_hub_admin:password@localhost:5432/a_hub"
 
 # 2. Initialize FastAPI and Prism
 # Create the main FastAPI app.
 app = FastAPI(
-    title="Prism-py Auto-Generated API",
+    title="Prism-py",
     description="A powerful REST API created directly from a database schema.",
     version="1.0.0",
 )
 
 # Initialize the Prism orchestrator.
-api_prism = ApiPrism(db_client=DbClient(db_url=db_url), app=app)
+api_prism = ApiPrism(db_client=DbClient(db_url), app=app)
 
 # 3. Generate All API Routes
 api_prism.gen_all_routes()
+# api_prism.gen_metadata_routes()  # Generate /dt/* routes
+# api_prism.gen_health_routes()  # Generate /health/* routes
+# api_prism.gen_table_routes()  # Generate CRUD+ routes for all tables
+# api_prism.gen_view_routes()  # Generate read-only routes for all views
+# api_prism.gen_fn_routes()  # Generate routes for all functions
+# api_prism.gen_proc_routes()  # Generate routes for all procedures
+# api_prism.gen_trig_routes()  # Acknowledges triggers in the logs
+
+api_prism.cache.log_stats()  # Log cache statistics to the console
 
 # 4. Run the Server
 if __name__ == "__main__":

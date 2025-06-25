@@ -11,14 +11,14 @@ from .api.routers.functions import (
     ProcedureGenerator,
     TriggerGenerator,
 )
-from .api.routers.health import HealthGenerator
-from .api.routers.metadata import MetadataGenerator
-from .api.routers.views import ViewGenerator
-from .cache import CacheManager
-from .core.introspection.base import IntrospectorABC
-from .core.introspection.postgres import PostgresIntrospector
-from .db.client import DbClient
-from .ui import console, display_route_links, print_welcome
+from prism.api.routers.health import HealthGenerator
+from prism.api.routers.metadata import MetadataGenerator
+from prism.api.routers.views import ViewGenerator
+from prism.cache import CacheManager
+from prism.core.introspection.base import IntrospectorABC
+from prism.core.introspection.postgres import PostgresIntrospector
+from prism.db.client import DbClient
+from prism.ui import console, display_route_links, print_welcome
 
 
 class ApiPrism:
@@ -307,7 +307,7 @@ class ApiPrism:
         self.gen_proc_routes()
         self.gen_trig_routes()
 
-        console.print("[bold green]✅ API Generation Complete.[/]")
+        console.print("[bold green]✅ API Generation Complete.[/]\n")
 
     def print_welcome_message(self, host: str, port: int):
         print_welcome(
