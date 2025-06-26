@@ -15,7 +15,7 @@ from typing import (
 )
 from uuid import UUID
 
-from .mapping import SQL_TYPE_MAPPINGS
+from prism.core.types.mapping import SQL_TYPE_MAPPINGS
 
 T = TypeVar("T")
 

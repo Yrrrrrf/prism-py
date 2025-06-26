@@ -2,9 +2,9 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List
 
-from ..models.enums import EnumInfo
-from ..models.functions import FunctionMetadata
-from ..models.tables import TableMetadata
+from prism.core.models.enums import EnumInfo
+from prism.core.models.functions import FunctionMetadata
+from prism.core.models.tables import TableMetadata
 
 
 class IntrospectorABC(ABC):

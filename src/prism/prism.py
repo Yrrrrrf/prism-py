@@ -5,8 +5,8 @@ from typing import Dict, List, Optional, Set
 from fastapi import APIRouter, FastAPI
 from sqlalchemy.engine import Engine
 
-from .api.routers.crud import CrudGenerator
-from .api.routers.functions import (
+from prism.api.routers.crud import CrudGenerator
+from prism.api.routers.functions import (
     FunctionGenerator,
     ProcedureGenerator,
     TriggerGenerator,

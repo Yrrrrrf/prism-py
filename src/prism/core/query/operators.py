@@ -1,5 +1,5 @@
 # src/prism/core/query/operators.py
-from ..types.utils import string_to_list_converter
+from prism.core.types.utils import string_to_list_converter
 
 # Maps string operators to SQLAlchemy ORM column methods. (Used by CrudGenerator)
 ORM_OPERATOR_MAP = {

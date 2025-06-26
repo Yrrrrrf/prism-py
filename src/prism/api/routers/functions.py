@@ -7,9 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ...core.models.functions import FunctionMetadata, FunctionType
-from ...core.types.utils import ArrayType, get_python_type
-from ...ui import console, display_function_structure
+from prism.core.models.functions import FunctionMetadata, FunctionType
+from prism.core.types.utils import ArrayType, get_python_type
+from prism.ui import console, display_function_structure
 
 
 class BaseCallableGenerator:

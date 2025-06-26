@@ -4,15 +4,15 @@ from typing import Any, Dict, List, Tuple
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
-from ..models.enums import EnumInfo
-from ..models.functions import (
+from prism.core.models.enums import EnumInfo
+from prism.core.models.functions import (
     FunctionMetadata,
     FunctionParameter,
     FunctionType,
     ObjectType,
 )
-from ..models.tables import ColumnMetadata, ColumnReference, TableMetadata
-from .base import IntrospectorABC
+from prism.core.models.tables import ColumnMetadata, ColumnReference, TableMetadata
+from prism.core.introspection.base import IntrospectorABC
 
 
 def _parse_parameters(args_str: str) -> List[FunctionParameter]:

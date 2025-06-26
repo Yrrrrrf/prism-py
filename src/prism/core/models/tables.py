@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-from .enums import EnumInfo
+from prism.core.models.enums import EnumInfo
 
 
 @dataclass(frozen=True)
