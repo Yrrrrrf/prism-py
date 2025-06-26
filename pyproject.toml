@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "prism-py"
-version = "0.0.9"
+version = "0.0.10"
 description = "Automatic API generator that creates a REST API mirror of a database"
 readme = "README.md"
 keywords = ["api", "rest", "database", "fastapi", "sqlalchemy"]

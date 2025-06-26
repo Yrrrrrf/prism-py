@@ -1,6 +1,6 @@
 # src/prism/prism.py
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, FastAPI
 from sqlalchemy.engine import Engine
@@ -31,8 +31,6 @@ class ApiPrism:
         self.app = app
         self.schemas = schemas
         self.introspector = self._get_introspector(db_client.engine)
-        self.routers: Dict[str, APIRouter] = {}
-        self.included_router_keys: Set[str] = set()
         self.cache: Optional[CacheManager] = None
         self.start_time = datetime.now(timezone.utc)
         self._introspected = False
@@ -45,9 +43,8 @@ class ApiPrism:
         if self._introspected:
             return
 
-        # Decide which schemas to process based on user input.
         schemas_to_process: List[str]
-        if not self.schemas:  # Handles None and empty list []
+        if not self.schemas:
             console.print(
                 "[dim]No schemas provided. Discovering all user-defined schemas...[/]"
             )
@@ -99,20 +96,6 @@ class ApiPrism:
         console.print("[bold green]✅ Introspection Complete.[/]\n")
         self._introspected = True
 
-    def _get_or_create_router(self, schema: str) -> APIRouter:
-        """Gets or creates a single router for a given schema."""
-        if schema not in self.routers:
-            tag = schema.upper()
-            self.routers[schema] = APIRouter(prefix=f"/{schema}", tags=[tag])
-        return self.routers[schema]
-
-    def _include_router_if_new(self, schema: str):
-        """A helper to include a router only if its key hasn't been added yet."""
-        if schema not in self.included_router_keys:
-            router = self.routers[schema]
-            self.app.include_router(router)
-            self.included_router_keys.add(schema)
-
     def gen_table_routes(self):
         """Generates and includes CRUD routes for all tables."""
         self._ensure_introspection()
@@ -120,13 +103,18 @@ class ApiPrism:
             return
         console.rule("[bold blue]Generating Table Routes", style="bold blue")
 
+        routers_for_this_call: Dict[str, APIRouter] = {}
         generated_count = 0
+
         for schema in self.cache.schemas:
             schema_cache = self.cache.get_schema(schema)
             if not schema_cache or not schema_cache.tables:
                 continue
 
-            router = self._get_or_create_router(schema)
+            router = routers_for_this_call.setdefault(
+                schema, APIRouter(prefix=f"/{schema}", tags=[schema.upper()])
+            )
+
             for table_meta in schema_cache.tables:
                 gen = CrudGenerator(
                     table_metadata=table_meta,
@@ -136,7 +124,9 @@ class ApiPrism:
                 )
                 gen.generate_routes()
                 generated_count += 1
-            self._include_router_if_new(schema)
+
+        for router in routers_for_this_call.values():
+            self.app.include_router(router)
 
         console.print(f"[bold blue]Generated routes for {generated_count} tables.[/]\n")
 
@@ -147,13 +137,18 @@ class ApiPrism:
             return
         console.rule("[bold green]Generating View Routes", style="bold green")
 
+        routers_for_this_call: Dict[str, APIRouter] = {}
         generated_count = 0
+
         for schema in self.cache.schemas:
             schema_cache = self.cache.get_schema(schema)
             if not schema_cache or not schema_cache.views:
                 continue
 
-            router = self._get_or_create_router(schema)
+            router = routers_for_this_call.setdefault(
+                schema, APIRouter(prefix=f"/{schema}", tags=[schema.upper()])
+            )
+
             for view_meta in schema_cache.views:
                 gen = ViewGenerator(
                     view_metadata=view_meta,
@@ -162,7 +157,9 @@ class ApiPrism:
                 )
                 gen.generate_routes()
                 generated_count += 1
-            self._include_router_if_new(schema)
+
+        for router in routers_for_this_call.values():
+            self.app.include_router(router)
 
         console.print(f"[bold green]Generated routes for {generated_count} views.[/]\n")
 
@@ -173,13 +170,18 @@ class ApiPrism:
             return
         console.rule("[bold red]Generating Function Routes", style="bold red")
 
+        routers_for_this_call: Dict[str, APIRouter] = {}
         generated_count = 0
+
         for schema in self.cache.schemas:
             schema_cache = self.cache.get_schema(schema)
             if not schema_cache or not schema_cache.functions:
                 continue
 
-            router = self._get_or_create_router(schema)
+            router = routers_for_this_call.setdefault(
+                schema, APIRouter(prefix=f"/{schema}", tags=[schema.upper()])
+            )
+
             for func_meta in schema_cache.functions:
                 gen = FunctionGenerator(
                     metadata=func_meta,
@@ -188,7 +190,9 @@ class ApiPrism:
                 )
                 gen.generate_routes()
                 generated_count += 1
-            self._include_router_if_new(schema)
+
+        for router in routers_for_this_call.values():
+            self.app.include_router(router)
 
         console.print(
             f"[bold red]Generated routes for {generated_count} functions.[/]\n"
@@ -201,13 +205,18 @@ class ApiPrism:
             return
         console.rule("[bold magenta]Generating Procedure Routes", style="bold magenta")
 
+        routers_for_this_call: Dict[str, APIRouter] = {}
         generated_count = 0
+
         for schema in self.cache.schemas:
             schema_cache = self.cache.get_schema(schema)
             if not schema_cache or not schema_cache.procedures:
                 continue
 
-            router = self._get_or_create_router(schema)
+            router = routers_for_this_call.setdefault(
+                schema, APIRouter(prefix=f"/{schema}", tags=[schema.upper()])
+            )
+
             for proc_meta in schema_cache.procedures:
                 gen = ProcedureGenerator(
                     metadata=proc_meta,
@@ -216,7 +225,9 @@ class ApiPrism:
                 )
                 gen.generate_routes()
                 generated_count += 1
-            self._include_router_if_new(schema)
+
+        for router in routers_for_this_call.values():
+            self.app.include_router(router)
 
         console.print(
             f"[bold magenta]Generated routes for {generated_count} procedures.[/]\n"
@@ -238,7 +249,7 @@ class ApiPrism:
                 continue
             for trig_meta in schema_cache.triggers:
                 gen = TriggerGenerator(metadata=trig_meta)
-                gen.generate_routes()  # This just prints info
+                gen.generate_routes()
         console.print()
 
     def gen_metadata_routes(self):
@@ -316,7 +327,6 @@ class ApiPrism:
             host=host,
             port=port,
         )
-
 
 # # * Additional utility methods
 
