@@ -13,7 +13,7 @@ db_url = "postgresql://pharma_admin:password@localhost:5432/pharma_care"
 app = FastAPI(
     title="prism-py",
     description="A powerful REST API created directly from a database schema.",
-    version="0.0.9",
+    version="0.0.10",
 )
 
 # Initialize the Prism orchestrator.

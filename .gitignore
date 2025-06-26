@@ -16,3 +16,4 @@ uv.lock
 # some
 .env
 test/
+docs/
