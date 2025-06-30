@@ -5,8 +5,8 @@ from prism.db.client import DbClient
 from prism.prism import ApiPrism
 
 # 1. Load Database Configuration from Environment
-# db_url = "postgresql://a_hub_admin:password@localhost:5432/a_hub"
-db_url = "postgresql://pharma_admin:password@localhost:5432/pharma_care"
+db_url = "postgresql://a_hub_admin:password@localhost:5432/a_hub"
+# db_url = "postgresql://pharma_admin:password@localhost:5432/pharma_care"
 
 # 2. Initialize FastAPI and Prism
 # Create the main FastAPI app.
