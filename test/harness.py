@@ -3,8 +3,6 @@ import httpx
 import time
 import asyncio
 import argparse
-import subprocess
-import os
 import random
 import uuid
 from rich.console import Console

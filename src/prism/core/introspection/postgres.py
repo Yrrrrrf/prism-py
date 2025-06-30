@@ -1,5 +1,5 @@
 # src/prism/core/introspection/postgres.py
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
@@ -49,6 +49,24 @@ def _parse_parameters(args_str: str) -> List[FunctionParameter]:
             )
         )
     return parameters
+
+
+def _format_sql_type(
+    base_type: str,
+    max_len: Optional[int],
+    numeric_precision: Optional[int],
+    numeric_scale: Optional[int],
+) -> str:
+    """Creates a formatted SQL type string, e.g., 'varchar(50)'."""
+    if base_type in ("varchar", "character varying") and max_len is not None:
+        return f"{base_type}({max_len})"
+    if (
+        base_type == "numeric"
+        and numeric_precision is not None
+        and numeric_scale is not None
+    ):
+        return f"numeric({numeric_precision}, {numeric_scale})"
+    return base_type
 
 
 class PostgresIntrospector(IntrospectorABC):
@@ -158,12 +176,57 @@ class PostgresIntrospector(IntrospectorABC):
             if info.schema == schema
         }
 
+    def _get_column_details(self, schema: str) -> Dict[Tuple[str, str], Dict[str, Any]]:
+        """
+        Gets detailed metadata for each column in a schema, including base type,
+        length, precision, and scale.
+        """
+        if schema in self._column_type_map_cache:
+            return self._column_type_map_cache[schema]
+
+        query = text(
+            """
+            SELECT
+                c.relname AS table_name,
+                a.attname AS column_name,
+                t.typname AS base_type_name,
+                isc.character_maximum_length,
+                isc.numeric_precision,
+                isc.numeric_scale
+            FROM
+                pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_attribute a ON a.attrelid = c.oid
+                JOIN pg_type t ON t.oid = a.atttypid
+                LEFT JOIN information_schema.columns isc
+                  ON isc.table_schema = n.nspname
+                  AND isc.table_name = c.relname
+                  AND isc.column_name = a.attname
+            WHERE
+                n.nspname = :schema
+                AND a.attnum > 0
+                AND NOT a.attisdropped;
+            """
+        )
+        type_map: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        with self.engine.connect() as connection:
+            result = connection.execute(query, {"schema": schema})
+            for row in result:
+                type_map[(row.table_name, row.column_name)] = {
+                    "base_type_name": row.base_type_name,
+                    "character_maximum_length": row.character_maximum_length,
+                    "numeric_precision": row.numeric_precision,
+                    "numeric_scale": row.numeric_scale,
+                }
+
+        self._column_type_map_cache[schema] = type_map
+        return type_map
+
     def _create_table_metadata(
         self, schema: str, name: str, is_view: bool, all_enums_map: Dict[str, EnumInfo]
     ) -> TableMetadata:
         """Private helper to build a TableMetadata object for a table or view."""
-        column_info = self._get_column_true_types(schema)
-
+        column_details = self._get_column_details(schema)
         pk_constraint = self.inspector.get_pk_constraint(name, schema)
         pk_column_names = pk_constraint.get("constrained_columns", [])
         column_data = self.inspector.get_columns(name, schema)
@@ -172,34 +235,42 @@ class PostgresIntrospector(IntrospectorABC):
 
         columns = []
         for col in column_data:
-            is_primary_key = col["name"] in pk_column_names
+            details = column_details.get((name, col["name"]), {})
+            base_type_name = details.get("base_type_name", str(col["type"]))
+            max_len = details.get("character_maximum_length")
+
+            enum_info = all_enums_map.get(f"{schema}.{base_type_name}")
+
+            # If it's an enum, the final type is just the enum name.
+            # Otherwise, format it with length/precision.
+            if enum_info:
+                final_sql_type = enum_info.name
+            else:
+                final_sql_type = _format_sql_type(
+                    base_type=base_type_name,
+                    max_len=max_len,
+                    numeric_precision=details.get("numeric_precision"),
+                    numeric_scale=details.get("numeric_scale"),
+                )
 
             foreign_key = None
             if col["name"] in fk_map:
                 fk_info = fk_map[col["name"]]
-                ref_table = fk_info["referred_table"]
-                ref_schema = fk_info["referred_schema"]
-                ref_column = fk_info["referred_columns"][0]
                 foreign_key = ColumnReference(
-                    schema=ref_schema, table=ref_table, column=ref_column
+                    schema=fk_info["referred_schema"],
+                    table=fk_info["referred_table"],
+                    column=fk_info["referred_columns"][0],
                 )
-
-            true_type_name, max_len = column_info.get(
-                (name, col["name"]), (str(col["type"]), None)
-            )
-            enum_info = all_enums_map.get(f"{schema}.{true_type_name}")
-
-            final_sql_type = enum_info.name if enum_info else true_type_name
 
             columns.append(
                 ColumnMetadata(
                     name=col["name"],
                     sql_type=final_sql_type,
                     is_nullable=col["nullable"],
-                    is_pk=is_primary_key,
+                    is_pk=col["name"] in pk_column_names,
+                    max_length=max_len,
                     default_value=col.get("default"),
                     comment=col.get("comment"),
-                    max_length=max_len,
                     foreign_key=foreign_key,
                     enum_info=enum_info,
                 )
