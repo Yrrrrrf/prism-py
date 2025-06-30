@@ -58,13 +58,16 @@ class PostgresIntrospector(IntrospectorABC):
         self.engine = engine
         self.inspector = inspect(engine)
         self._all_enums_cache: Dict[str, EnumInfo] | None = None
-        self._column_type_map_cache: Dict[str, Dict[Tuple[str, str], str]] = {}
+        self._column_type_map_cache: Dict[
+            str, Dict[Tuple[str, str], Tuple[str, int | None]]
+        ] = {}
 
-    def _get_column_true_types(self, schema: str) -> Dict[Tuple[str, str], str]:
+    def _get_column_true_types(
+        self, schema: str
+    ) -> Dict[Tuple[str, str], Tuple[str, int | None]]:
         """
-        Gets the true user-defined type name for each column in a schema,
-        bypassing SQLAlchemy's type string representation which can be misleading.
-        Returns a map of {(table_name, column_name): true_type_name}.
+        Gets the true user-defined type name and max length for each column in a schema.
+        Returns a map of {(table_name, column_name): (true_type_name, max_length)}.
         """
         if schema in self._column_type_map_cache:
             return self._column_type_map_cache[schema]
@@ -74,23 +77,32 @@ class PostgresIntrospector(IntrospectorABC):
             SELECT
                 c.relname AS table_name,
                 a.attname AS column_name,
-                t.typname AS type_name
+                t.typname AS type_name,
+                a.atttypmod,
+                col.character_maximum_length
             FROM
                 pg_class c
                 JOIN pg_namespace n ON n.oid = c.relnamespace
                 JOIN pg_attribute a ON a.attrelid = c.oid
                 JOIN pg_type t ON t.oid = a.atttypid
+                LEFT JOIN information_schema.columns col
+                    ON col.table_schema = n.nspname
+                    AND col.table_name = c.relname
+                    AND col.column_name = a.attname
             WHERE
                 n.nspname = :schema
                 AND a.attnum > 0
                 AND NOT a.attisdropped;
             """
         )
-        type_map: Dict[Tuple[str, str], str] = {}
+        type_map: Dict[Tuple[str, str], Tuple[str, int | None]] = {}
         with self.engine.connect() as connection:
             result = connection.execute(query, {"schema": schema})
             for row in result:
-                type_map[(row.table_name, row.column_name)] = row.type_name
+                type_map[(row.table_name, row.column_name)] = (
+                    row.type_name,
+                    row.character_maximum_length,
+                )
 
         self._column_type_map_cache[schema] = type_map
         return type_map
@@ -150,7 +162,7 @@ class PostgresIntrospector(IntrospectorABC):
         self, schema: str, name: str, is_view: bool, all_enums_map: Dict[str, EnumInfo]
     ) -> TableMetadata:
         """Private helper to build a TableMetadata object for a table or view."""
-        column_true_types = self._get_column_true_types(schema)
+        column_info = self._get_column_true_types(schema)
 
         pk_constraint = self.inspector.get_pk_constraint(name, schema)
         pk_column_names = pk_constraint.get("constrained_columns", [])
@@ -172,8 +184,8 @@ class PostgresIntrospector(IntrospectorABC):
                     schema=ref_schema, table=ref_table, column=ref_column
                 )
 
-            true_type_name = column_true_types.get(
-                (name, col["name"]), str(col["type"])
+            true_type_name, max_len = column_info.get(
+                (name, col["name"]), (str(col["type"]), None)
             )
             enum_info = all_enums_map.get(f"{schema}.{true_type_name}")
 
@@ -187,6 +199,7 @@ class PostgresIntrospector(IntrospectorABC):
                     is_pk=is_primary_key,
                     default_value=col.get("default"),
                     comment=col.get("comment"),
+                    max_length=max_len,
                     foreign_key=foreign_key,
                     enum_info=enum_info,
                 )

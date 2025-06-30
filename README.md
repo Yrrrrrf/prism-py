@@ -23,6 +23,8 @@ Built on top of [FastAPI](https://fastapi.tiangolo.com/), prism-py eliminates bo
 ## Key Features
 
 - **Automatic Route Generation**: Create CRUD endpoints for tables, views, functions, and procedures
+- **Composite Primary Keys**: Full support for tables with multi-column primary keys.
+- **String Length Validation**: Automatic server-side validation based on database schema (e.g., `VARCHAR(50)`).
 - **Type Safety**: Full type handling with proper conversions between SQL and Python types
 - **Database Independence**: Support for PostgreSQL, MySQL, and SQLite
 - **Schema-Based Organization**: Routes organized by database schemas for clean API structure

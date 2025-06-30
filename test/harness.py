@@ -50,8 +50,8 @@ class TestCase:
 
     # In harness.py, inside the TestCase class
 
-    def generate_payload(self) -> None:
-        """Generates a random payload based on the schema."""
+    def generate_payload(self, unique_suffix: str) -> None:
+        """Generates a random but deterministically unique payload based on the schema."""
         if not self.payload_schema:
             self._payload = None
             return
@@ -59,18 +59,19 @@ class TestCase:
         payload = {}
         for key, type_def in self.payload_schema.items():
             if type_def == "uuid":
+                # We still generate a random UUID for the PK, as it must be unique globally.
                 payload[key] = str(uuid.uuid4())
             elif type_def == "string":
-                payload[key] = f"test_{key}_{random.randint(1000, 99999)}"
+                # The name is now deterministic and unique within the test run.
+                payload[key] = f"test_{key}_{unique_suffix}"
             elif type_def == "email":
-                payload[key] = f"test.{random.randint(1000, 99999)}@example.com"
+                payload[key] = f"test.{unique_suffix}@example.com"
             elif type_def == "int":
+                # For other fields, random is still fine.
                 payload[key] = random.randint(1, 100)
             elif type_def == "bool":
                 payload[key] = random.choice([True, False])
-            # Add this 'else' block to catch unknown type definitions
             else:
-                # If the type_def is a static value (not a keyword), use it directly
                 if isinstance(type_def, (str, int, bool, float)):
                     payload[key] = type_def
                 else:
@@ -111,13 +112,36 @@ TEST_CASES = [
             "name": "string",
         },
     ),
-    # Add PUT, PATCH, DELETE tests here later if needed
+    TestCase(
+        name="Multi-PK - GET Record",
+        method="GET",
+        endpoint="/infrastruct/faculty_building",
+    ),
+    # TestCase(
+    #     name="Multi-PK - DELETE Record",
+    #     method="DELETE",
+    #     endpoint="/account/user_roles",
+    #     params={
+    #         "user_id": "a3b1c4d5-e6f7-g8h9-i0j1-k2l3m4n5o6p7",
+    #         "role_id": "r1s2t3u4-v5w6-x7y8-z9a0-b1c2d3e4f5g6",
+    #     },
+    # ),
+    # TestCase(
+    #     name="Validation - String Length (FAIL)",
+    #     method="POST",
+    #     endpoint="/infrastruct/faculty",
+    #     payload_schema={
+    #         "name": "a_very_long_string_that_should_definitely_exceed_the_varchar_limit_of_the_database_and_cause_a_validation_error"
+    #     },
+    # ),
 ]
 
 
 # --- 3. The Test Runner ---
 
 # In harness.py, replace the existing run_test_case function
+
+# In harness.py, replace the entire run_test_case function
 
 
 async def run_test_case(
@@ -132,13 +156,23 @@ async def run_test_case(
         f"  -> Running [bold cyan]{case.name}[/bold cyan] against [bold]{base_url}[/bold]..."
     )
 
+    # A counter specific to this single test run.
+    request_counter = 0
+    # A unique ID for this entire batch of requests.
+    run_id = str(uuid.uuid4())[:8]
+
     async def single_request():
-        case.generate_payload()
+        nonlocal request_counter
+        current_count = request_counter
+        request_counter += 1
+
+        # Create a guaranteed unique suffix for this specific request.
+        unique_suffix = f"{run_id}_{current_count}"
+
+        case.generate_payload(unique_suffix)
         final_payload = case._payload
 
-        # --- THIS IS THE CRITICAL MODIFICATION ---
-        # If we're testing prism-py's POST, remove the client-generated ID
-        # because it correctly expects the DB to generate it.
+        # Logic to handle prism-py's correct POST behavior
         if (
             "prism-py" in base_url
             and case.method == "POST"
@@ -147,14 +181,13 @@ async def run_test_case(
         ):
             final_payload = final_payload.copy()
             del final_payload["id"]
-        # -----------------------------------------
 
         try:
             response = await client.request(
                 method=case.method,
                 url=f"{base_url}{case.endpoint}",
                 params=case.params,
-                json=final_payload,  # Use the potentially modified payload
+                json=final_payload,
                 timeout=20,
             )
             response.raise_for_status()
@@ -166,7 +199,6 @@ async def run_test_case(
 
     start_time = time.perf_counter()
     try:
-        # The concurrency logic remains the same...
         tasks = []
         for _ in range(num_requests):
             tasks.append(single_request())

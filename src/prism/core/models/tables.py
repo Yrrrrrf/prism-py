@@ -24,6 +24,7 @@ class ColumnMetadata:
     is_pk: bool
     default_value: Optional[str] = None
     comment: Optional[str] = None
+    max_length: Optional[int] = None
     foreign_key: Optional[ColumnReference] = None
     enum_info: Optional[EnumInfo] = None  # Link to an enum if it's an enum type
 

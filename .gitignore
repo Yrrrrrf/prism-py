@@ -11,8 +11,8 @@ wheels/
 
 # uv related
 uv.lock
-.ruff_cache/
+.ruff_cache
 
 # some
 .env
-docs/
+docs

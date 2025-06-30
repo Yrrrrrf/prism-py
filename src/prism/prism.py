@@ -309,6 +309,23 @@ class ApiPrism:
     def gen_all_routes(self):
         """Introspects the database and generates all available API routes."""
         self._ensure_introspection()
+        # if not self.cache:
+        #     return
+
+        # # Add all discovered enums to the OpenAPI schema components
+        # if not self.app.openapi_components:
+        #     self.app.openapi_components = {}
+        # if "schemas" not in self.app.openapi_components:
+        #     self.app.openapi_components["schemas"] = {}
+
+        # for schema_cache in self.cache.cache.values():
+        #     for enum_info in schema_cache.enums.values():
+        #         self.app.openapi_components["schemas"][enum_info.name] = {
+        #             "title": enum_info.name,
+        #             "enum": enum_info.values,
+        #             "type": "string",
+        #             "description": f"An enumeration for {enum_info.name} in schema {enum_info.schema}",
+        #         }
 
         self.gen_metadata_routes()
         self.gen_health_routes()
