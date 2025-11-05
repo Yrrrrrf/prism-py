@@ -17,3 +17,14 @@ def prism_init() -> str:
     # print("ALL LIBRARIES SETUP AS EXPECTED!!!...")
     print(f"prism-py initialized (version {__version__})")
     return __version__
+
+
+def main() -> None:
+    """Main entry point for the GWA CLI."""
+    # todo: Create some CLI app that allow the user to interact with prism
+    # init_cli()
+    print("Welcome to prism-py!")
+
+
+if __name__ == "__main__":
+    main()

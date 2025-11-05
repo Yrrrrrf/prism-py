@@ -1,14 +1,10 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
 [project]
 name = "prism-py"
-version = "0.0.12"
+version = "0.0.13"
 description = "Automatic API generator that creates a REST API mirror of a database"
-readme = "README.md"
-keywords = ["api", "rest", "database", "fastapi", "sqlalchemy"]
 requires-python = ">=3.10"
+readme = "README.md"
+keywords = ["api", "rest", "database", "orm", "codegen"]
 license = {text = "MIT"}
 authors = [
     {name = "Yrrrrrf", email = "fer.rezac@outlook.com"},
@@ -19,38 +15,35 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Database",
     "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
     "Topic :: Software Development :: Code Generators",
     "Typing :: Typed",
 ]
 dependencies = [
-    "fastapi>=0.115.14",
-    "sqlalchemy>=2.0.41",
-    "psycopg2>=2.9.10",
-    "pydantic>=2.11.7",
-    "rich>=14.0.0",
+    "fastapi>=0.121.0",
+    "sqlalchemy>=2.0.44",
+    # "psycopg2>=2.9.11",
+    "pydantic>=2.12.4",
+    "rich>=14.2.0",
 ]
 
-
 [project.urls]
-Homepage = "https://github.com/Yrrrrrf/prism-py"
+# Homepage = "https://github.com/Yrrrrrf/prism-py"
 Repository = "https://github.com/Yrrrrrf/prism-py"
 Download = "https://github.com/Yrrrrrf/prism-py/releases"
-
 # todo: Add funding!
 # Funding = "https://..."
 
-# [project.optional-dependencies]
-# dev = [
-#     # "pytest>=8.3.4",
-# ]
+[project.scripts]
+prism = "prism:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/prism"]
+[tool.uv.build-backend]
+module-name = "prism"
+module-root = "src"
 
-[dependency-groups]
-dev = [
-    "uvicorn>=0.35.0",
-    "httpx>=0.28.1",
-]
+[build-system]
+requires = ["uv_build>=0.8.19,<0.9.0"]
+build-backend = "uv_build"
