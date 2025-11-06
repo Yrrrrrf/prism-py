@@ -170,7 +170,6 @@ class CrudGenerator:
             summary=f"Get or filter {self.table_meta.name} records",
             description=description,
             openapi_extra={"parameters": gen_openapi_parameters(self.table_meta)},
-            tags=[self.table_meta.name],
         )
 
     def _add_multi_pk_create_route(self):
@@ -213,7 +212,6 @@ class CrudGenerator:
             response_model=self.pydantic_read_model,
             status_code=201,
             summary=f"Create a new {self.table_meta.name} record with a composite key",
-            tags=[self.table_meta.name],
         )(create_multi_pk_resource)
 
     def _add_multi_pk_update_route(self):
@@ -257,7 +255,6 @@ class CrudGenerator:
             f"/{self.table_meta.name}",
             response_model=self.pydantic_read_model,
             summary=f"Update a {self.table_meta.name} record by composite primary key",
-            tags=[self.table_meta.name],
         )(update_multi_pk_resource)
 
     def _add_multi_pk_delete_route(self):
@@ -281,7 +278,6 @@ class CrudGenerator:
             f"/{self.table_meta.name}",
             status_code=204,
             summary=f"Delete a {self.table_meta.name} record by composite primary key",
-            tags=[self.table_meta.name],
         )(delete_multi_pk_resource)
 
     # --- Single-PK Route Generation (SQLAlchemy ORM) ---
@@ -304,7 +300,6 @@ class CrudGenerator:
             summary=f"Read and filter {self.table_meta.name} records",
             description=self._generate_endpoint_description(),
             openapi_extra={"parameters": gen_openapi_parameters(self.table_meta)},
-            tags=[self.table_meta.name],
         )
 
     def _add_create_route(self):
@@ -329,7 +324,6 @@ class CrudGenerator:
             response_model=self.pydantic_read_model,
             status_code=201,
             summary=f"Create a new {self.table_meta.name} record",
-            tags=[self.table_meta.name],
         )(create_resource)
 
     def _add_update_route(self):
@@ -366,7 +360,6 @@ class CrudGenerator:
             f"/{self.table_meta.name}/{{{pk_col_name}}}",
             response_model=self.pydantic_read_model,
             summary=f"Update a {self.table_meta.name} record by its primary key",
-            tags=[self.table_meta.name],
         )(update_resource)
 
     def _add_patch_route(self):
@@ -408,7 +401,6 @@ class CrudGenerator:
             f"/{self.table_meta.name}/{{{pk_col_name}}}",
             response_model=self.pydantic_read_model,
             summary=f"Partially update a {self.table_meta.name} record",
-            tags=[self.table_meta.name],
         )(patch_resource)
 
     def _add_delete_route(self):
@@ -440,7 +432,6 @@ class CrudGenerator:
             f"/{self.table_meta.name}/{{{pk_col_name}}}",
             status_code=204,
             summary=f"Delete a {self.table_meta.name} record by its primary key",
-            tags=[self.table_meta.name],
         )(delete_resource)
 
     # --- Model Generation & Helpers ---

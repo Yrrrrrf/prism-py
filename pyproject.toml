@@ -54,3 +54,7 @@ dev = [
     "uvicorn>=0.38.0",
     "httpx>=0.28.1",
 ]
+# * Add some optional dependency groups later
+# docs = ["sphinx"]
+# coverage = ["coverage[toml]"]
+# test = ["pytest>7", {include-group = "coverage"}]

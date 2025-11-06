@@ -10,9 +10,5 @@ dist/
 wheels/
 *.egg-info
 
-# Rust-generated files
-/target/
-temp/
-
 # lock files
 **/**.lock

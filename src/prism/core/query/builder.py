@@ -40,35 +40,43 @@ class QueryBuilder:
             if value is None:
                 continue
 
+            field_name = None
+            operator = None
+
+            # First, try to match the advanced 'field[operator]' syntax
             match = QUERY_PARAM_REGEX.match(key)
-            if not match:
-                continue
+            if match:
+                field_name, operator = match.groups()
+            # If it doesn't match, check if the key is a valid column name for a simple equality filter
+            elif hasattr(self.model, key):
+                field_name = key
+                operator = "eq" # Treat it as an implicit equality operator
 
-            field_name, operator = match.groups()
+            # If we successfully parsed a field and operator, apply the filter
+            if field_name and operator:
+                # Sanity check: ensure the field and operator are valid for the model and our maps
+                if not hasattr(self.model, field_name) or operator not in ORM_OPERATOR_MAP:
+                    continue
 
-            # For ORM queries, use the ORM_OPERATOR_MAP
-            if not hasattr(self.model, field_name) or operator not in ORM_OPERATOR_MAP:
-                continue
+                column = getattr(self.model, field_name)
+                sqlalchemy_method_name = ORM_OPERATOR_MAP[operator]
 
-            column = getattr(self.model, field_name)
-            sqlalchemy_method_name = ORM_OPERATOR_MAP[operator]
+                if operator in CONVERTER_MAP:
+                    value = CONVERTER_MAP[operator](value)
 
-            if operator in CONVERTER_MAP:
-                value = CONVERTER_MAP[operator](value)
+                if operator in BOOLEAN_OPERATORS:
+                    bool_value = str(value).lower() in ("true", "1", "t", "y", "yes")
+                    if bool_value:
+                        self.query = self.query.filter(
+                            getattr(column, sqlalchemy_method_name)(None)
+                        )
+                    else:
+                        self.query = self.query.filter(getattr(column, "is_not")(None))
+                    continue
 
-            if operator in BOOLEAN_OPERATORS:
-                bool_value = str(value).lower() in ("true", "1", "t", "y", "yes")
-                if bool_value:
-                    self.query = self.query.filter(
-                        getattr(column, sqlalchemy_method_name)(None)
-                    )
-                else:
-                    self.query = self.query.filter(getattr(column, "is_not")(None))
-                continue
-
-            self.query = self.query.filter(
-                getattr(column, sqlalchemy_method_name)(value)
-            )
+                self.query = self.query.filter(
+                    getattr(column, sqlalchemy_method_name)(value)
+                )
 
     def _apply_sorting(self):
         """Applies sorting to the ORM query."""
