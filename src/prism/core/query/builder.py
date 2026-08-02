@@ -50,12 +50,15 @@ class QueryBuilder:
             # If it doesn't match, check if the key is a valid column name for a simple equality filter
             elif hasattr(self.model, key):
                 field_name = key
-                operator = "eq" # Treat it as an implicit equality operator
+                operator = "eq"  # Treat it as an implicit equality operator
 
             # If we successfully parsed a field and operator, apply the filter
             if field_name and operator:
                 # Sanity check: ensure the field and operator are valid for the model and our maps
-                if not hasattr(self.model, field_name) or operator not in ORM_OPERATOR_MAP:
+                if (
+                    not hasattr(self.model, field_name)
+                    or operator not in ORM_OPERATOR_MAP
+                ):
                     continue
 
                 column = getattr(self.model, field_name)
