@@ -13,5 +13,9 @@ class EnumInfo:
     values: List[str]
 
     def to_python_enum(self) -> Type[PyEnum]:
-        """Creates a Python Enum class from this info."""
-        return PyEnum(self.name, {v: v for v in self.values})
+        """Creates a Python ``str`` Enum class from this info.
+
+        The ``str`` mixin makes members compare and bind as their plain values,
+        which SQLAlchemy's reflected ``Enum`` columns require.
+        """
+        return PyEnum(self.name, {v: v for v in self.values}, type=str)
