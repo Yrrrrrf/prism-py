@@ -1,6 +1,6 @@
 [project]
 name = "prism-py"
-version = "0.0.13"
+version = "0.0.14"
 description = "Automatic API generator that creates a REST API mirror of a database"
 requires-python = ">=3.10"
 readme = "README.md"
@@ -8,24 +8,24 @@ keywords = ["api", "rest", "database", "orm", "codegen"]
 license = { text = "MIT" }
 authors = [{ name = "Yrrrrrf", email = "fer.rezac@outlook.com" }]
 classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Programming Language :: Python :: 3.14",
-    "Topic :: Database",
-    "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
-    "Topic :: Software Development :: Code Generators",
-    "Typing :: Typed",
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Database",
+  "Topic :: Internet :: WWW/HTTP :: WSGI :: Application",
+  "Topic :: Software Development :: Code Generators",
+  "Typing :: Typed",
 ]
 dependencies = [
-    "fastapi>=0.136.1",
-    "sqlalchemy>=2.0.49",
-    "psycopg2-binary>=2.9.12",
-    "pydantic>=2.13.3",
-    "rich>=15.0.0",
+  "fastapi>=0.136.1",
+  "sqlalchemy>=2.0.49",
+  "psycopg2-binary>=2.9.12",
+  "pydantic>=2.13.3",
+  "rich>=15.0.0",
 ]
 
 [project.urls]
